@@ -1,0 +1,1443 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>App de Asistencia con Historial No Editable (v16)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
+    <style>
+        /* Importa la fuente Poppins de Google Fonts */
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap');
+        
+        /* Estilos generales del cuerpo */
+        body {
+            font-family: 'Poppins', sans-serif;
+            background-color: #f0fdf4; /* Verde pálido */
+        }
+
+        /* Estilos del contenedor de autenticación */
+        .auth-container {
+            background-image: linear-gradient(180deg, #dcfce7, #f0fdf4); /* Gradiente de verde a verde pálido */
+        }
+
+        /* Estilos para las tarjetas de clase y estudiante */
+        .class-card, .student-card {
+            background-color: #dcfce7;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1), 0 1px 3px rgba(0,0,0,0.08);
+            border: 2px solid #a7f3d0;
+        }
+
+        /* Estilos para los botones principales */
+        .btn-green {
+            background-color: #4ade80; /* Verde brillante */
+            color: white;
+            padding: 1rem 2rem;
+            border-radius: 9999px; /* Totalmente redondeado */
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1), 0 1px 3px rgba(0,0,0,0.08);
+            transition: transform 0.2s;
+        }
+        
+        .btn-secondary {
+            background-color: #d1d5db; /* Gris claro */
+            color: #4b5563; /* Gris oscuro */
+            padding: 1rem 2rem;
+            border-radius: 9999px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1), 0 1px 3px rgba(0,0,0,0.08);
+            transition: transform 0.2s;
+        }
+        .btn-green:hover {
+            background-color: #22c55e; /* Verde más oscuro al pasar el ratón */
+            transform: scale(1.05); /* Efecto de escala */
+        }
+        .btn-secondary:hover {
+            background-color: #9ca3af; /* Gris más oscuro al pasar el ratón */
+            transform: scale(1.05);
+        }
+
+        /* Estilos para los botones de asistencia */
+        .attendance-btn-present {
+            background-color: #22c55e;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            transition: transform 0.2s;
+        }
+        .attendance-btn-late {
+            background-color: #f59e0b;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            transition: transform 0.2s;
+        }
+        .attendance-btn-absent {
+            background-color: #ef4444;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            transition: transform 0.2s;
+        }
+
+        .attendance-btn-present:hover, .attendance-btn-late:hover, .attendance-btn-absent:hover {
+            transform: scale(1.1);
+        }
+
+        /* Estilos para las tarjetas del historial */
+        .history-card {
+            background-color: #dcfce7;
+            border-left: 4px solid #34d399;
+        }
+        .history-card.updated {
+            background-color: #fffbeb;
+            border-left: 4px solid #f59e0b;
+        }
+        
+        /* Estilos del modal */
+        .modal-overlay {
+            background-color: rgba(0, 0, 0, 0.5);
+            transition: opacity 0.3s ease-in-out;
+            opacity: 0;
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .modal-overlay.show {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        /* Estilos del menú de hamburguesa */
+        .hamburger-menu {
+            position: fixed;
+            top: 0;
+            right: -100%;
+            width: 75%;
+            height: 100%;
+            background-color: white;
+            transition: right 0.3s ease-in-out;
+            z-index: 40;
+            box-shadow: -4px 0 10px rgba(0, 0, 0, 0.1);
+        }
+        
+        .hamburger-menu.open {
+            right: 0;
+        }
+    </style>
+</head>
+<body class="bg-[#f0fdf4] min-h-screen flex items-center justify-center">
+    <div id="app-container" class="bg-white rounded-3xl shadow-2xl overflow-hidden w-full max-w-sm flex flex-col h-full min-h-screen"></div>
+    <div id="modal-container"></div>
+    <div id="message-container" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-full max-w-xs p-4"></div>
+
+    <script>
+        // --- Variables globales y datos de prueba ---
+        let students = [];
+        let classes = [];
+        let allHistoryRecords = []; 
+        let teacherProfile = {}; // Nuevo objeto para el perfil del docente
+        let state = { 
+            currentScreen: "login", 
+            selectedClass: null, 
+            currentStudentIndex: 0, 
+            viewMode: "carousel", 
+            currentPage: 0,
+            tempAttendance: {},
+            historyRecords: [],
+            selectedHistoryDate: new Date().toISOString().slice(0, 10),
+            isUpdating: false,
+            recordToUpdateId: null,
+            isMenuOpen: false,
+            viewingHistoryRecord: false // Nuevo estado para la vista de historial
+        };
+        const pageSize = 3; 
+        const appContainer = document.getElementById("app-container");
+        const avatars = [
+            'https://placehold.co/100x100/50c878/fff?text=J',
+            'https://placehold.co/100x100/3498db/fff?text=S',
+            'https://placehold.co/100x100/f39c12/fff?text=F',
+            'https://placehold.co/100x100/e74c3c/fff?text=L',
+            'https://placehold.co/100x100/9b59b6/fff?text=A',
+            'https://placehold.co/100x100/34495e/fff?text=M'
+        ];
+
+        // --- Función para generar IDs únicos de forma compatible ---
+        function generateUUID() {
+            // Usa crypto.randomUUID si está disponible
+            if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+                return crypto.randomUUID();
+            }
+            // Fallback para navegadores antiguos
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+        
+        // --- Funciones de almacenamiento local (`localStorage`) ---
+        /**
+         * Carga los datos de `localStorage` o inicializa con datos de prueba.
+         */
+        function loadData() {
+            try {
+                classes = JSON.parse(localStorage.getItem('classes')) || [
+                    { id: 'matematicas', name: 'Matemáticas Avanzadas', group: 'Grupo A' },
+                    { id: 'fisica', name: 'Física Aplicada', group: 'Grupo B' },
+                    { id: 'programacion', name: 'Programación I', group: 'Grupo C' }
+                ];
+                students = JSON.parse(localStorage.getItem('students')) || [
+                    { id: 'jvillalobos', name: 'Jazmín Violeta G. Villalobos' },
+                    { id: 'jperez', name: 'Juan Pérez' },
+                    { id: 'mgomez', name: 'María Gómez' },
+                    { id: 'lfernandez', name: 'Laura Fernández' },
+                    { id: 'smartinez', name: 'Sofía Martínez' },
+                    { id: 'psanchez', name: 'Pedro Sánchez' },
+                    { id: 'gruiz', name: 'Gabriela Ruiz' },
+                    { id: 'clopez', name: 'Carlos López' },
+                    { id: 'atorres', name: 'Ana Torres' }
+                ];
+                allHistoryRecords = JSON.parse(localStorage.getItem('history')) || [];
+                // Asignar IDs únicos a los registros si no los tienen
+                allHistoryRecords.forEach(record => {
+                    if (!record.id) record.id = generateUUID();
+                });
+                teacherProfile = JSON.parse(localStorage.getItem('teacherProfile')) || {
+                    name: "Nombre del Docente",
+                    photo: "https://placehold.co/100x100/d1d5db/4b5563?text=Docente"
+                };
+            } catch (e) {
+                console.error("Error al cargar los datos de localStorage:", e);
+                // Si hay un error (ej. datos corruptos), reinicia con datos de prueba
+                classes = [
+                    { id: 'matematicas', name: 'Matemáticas Avanzadas', group: 'Grupo A' },
+                    { id: 'fisica', name: 'Física Aplicada', group: 'Grupo B' },
+                    { id: 'programacion', name: 'Programación I', group: 'Grupo C' }
+                ];
+                students = [
+                    { id: 'jvillalobos', name: 'Jazmín Violeta G. Villalobos' },
+                    { id: 'jperez', name: 'Juan Pérez' },
+                    { id: 'mgomez', name: 'María Gómez' },
+                    { id: 'lfernandez', name: 'Laura Fernández' },
+                    { id: 'smartinez', name: 'Sofía Martínez' },
+                    { id: 'psanchez', name: 'Pedro Sánchez' },
+                    { id: 'gruiz', name: 'Gabriela Ruiz' },
+                    { id: 'clopez', name: 'Carlos López' },
+                    { id: 'atorres', name: 'Ana Torres' }
+                ];
+                allHistoryRecords = [];
+                teacherProfile = {
+                    name: "Nombre del Docente",
+                    photo: "https://placehold.co/100x100/d1d5db/4b5563?text=Docente"
+                };
+            }
+        }
+        
+        /**
+         * Guarda los datos en `localStorage`.
+         */
+        function saveData() {
+            localStorage.setItem('classes', JSON.stringify(classes));
+            localStorage.setItem('students', JSON.stringify(students));
+            localStorage.setItem('history', JSON.stringify(allHistoryRecords));
+            localStorage.setItem('teacherProfile', JSON.stringify(teacherProfile));
+        }
+
+        // --- Funciones de UI ---
+        /**
+         * Muestra un modal de confirmación al usuario.
+         * @param {string} text - El texto del mensaje.
+         * @param {Function} onConfirm - Función a ejecutar al confirmar.
+         * @param {Function} onCancel - Función a ejecutar al cancelar (opcional).
+         */
+        function showModal(text, onConfirm, onCancel) {
+            const modalContainer = document.getElementById("modal-container");
+            modalContainer.innerHTML = `<div class="modal-overlay fixed inset-0 z-50" onclick="event.stopPropagation();">
+                <div class="bg-white rounded-xl shadow-lg p-8 w-11/12 max-w-xs mx-auto text-center transform transition-all scale-95 duration-200 ease-out">
+                    <p class="text-lg font-semibold text-gray-800 mb-6">${text}</p>
+                    <div class="flex space-x-4">
+                        <button id="confirm-btn" class="flex-grow bg-red-500 text-white p-3 rounded-lg font-bold hover:bg-red-600 transition-colors">Confirmar</button>
+                        <button id="cancel-btn" class="flex-grow bg-gray-300 text-gray-800 p-3 rounded-lg font-bold hover:bg-gray-400 transition-colors">Cancelar</button>
+                    </div>
+                </div>
+            </div>`;
+            const overlay = modalContainer.querySelector('.modal-overlay');
+            setTimeout(() => overlay.classList.add('show'), 10);
+            
+            document.getElementById('confirm-btn').onclick = () => { onConfirm(); hideModal(); };
+            document.getElementById('cancel-btn').onclick = () => { if (onCancel) onCancel(); hideModal(); };
+            overlay.onclick = hideModal;
+            overlay.querySelector('.bg-white').onclick = (e) => e.stopPropagation();
+        }
+        
+        /**
+         * Muestra un modal para solicitar un PIN y validar.
+         * @param {string} text - El texto del mensaje.
+         * @param {Function} onConfirm - Función a ejecutar si el PIN es correcto.
+         * @param {Function} onCancel - Función a ejecutar si el PIN es incorrecto o se cancela (opcional).
+         */
+        function showPinModal(text, onConfirm) {
+            const modalContainer = document.getElementById("modal-container");
+            modalContainer.innerHTML = `<div id="pin-modal" class="modal-overlay fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 transition-opacity duration-300">
+                <div class="bg-white rounded-xl shadow-lg p-6 w-11/12 max-w-sm mx-auto text-center transform transition-all scale-95 duration-200 ease-out">
+                    <p class="text-lg font-semibold text-gray-800 mb-4">${text}</p>
+                    <input type="tel" id="pin-input" class="w-full p-3 rounded-md border border-gray-300 text-center mb-4" placeholder="Ingresa tu PIN">
+                    <div class="flex space-x-4">
+                        <button id="pin-confirm-btn" class="flex-grow bg-green-500 text-white p-3 rounded-lg font-bold hover:bg-green-600 transition-colors">Confirmar</button>
+                        <button id="pin-cancel-btn" class="flex-grow bg-gray-300 text-gray-800 p-3 rounded-lg font-bold hover:bg-gray-400 transition-colors">Cancelar</button>
+                    </div>
+                </div>
+            </div>`;
+            const overlay = document.getElementById('pin-modal');
+            setTimeout(() => overlay.classList.add('show'), 10);
+            
+            document.getElementById('pin-confirm-btn').onclick = () => {
+                const pin = document.getElementById('pin-input').value;
+                if (pin === '1234') { // PIN de prueba
+                    onConfirm();
+                    hideModal();
+                } else {
+                    showMessage("PIN incorrecto. Intenta de nuevo.", "error");
+                }
+            };
+            document.getElementById('pin-cancel-btn').onclick = () => { hideModal(); };
+            overlay.onclick = hideModal;
+            overlay.querySelector('.bg-white').onclick = (e) => e.stopPropagation();
+        }
+
+        /**
+         * Oculta el modal de confirmación.
+         */
+        function hideModal() {
+            const modalContainer = document.getElementById("modal-container");
+            const overlay = modalContainer.querySelector('.modal-overlay');
+            if (overlay) {
+                overlay.classList.remove('show');
+                setTimeout(() => modalContainer.innerHTML = '', 300);
+            }
+        }
+
+        /**
+         * Muestra una notificación temporal.
+         * @param {string} text - El texto del mensaje.
+         * @param {string} type - El tipo de mensaje ('success', 'error', 'info').
+         */
+        function showMessage(text, type = "success") {
+            const colors = { success: "bg-green-500", error: "bg-red-500", info: "bg-blue-500" };
+            const icon = { success: "fa-check-circle", error: "fa-exclamation-triangle", info: "fa-info-circle" };
+            const messageContainer = document.getElementById("message-container");
+            const messageBox = document.createElement("div");
+            messageBox.innerHTML = `<div class="${colors[type]} text-white p-4 rounded-xl shadow-lg flex items-center space-x-2 message-box">
+                    <i class="fas ${icon[type]} text-xl"></i><span>${text}</span></div>`;
+            messageContainer.innerHTML = '';
+            messageContainer.appendChild(messageBox);
+            setTimeout(() => { messageBox.querySelector(".message-box").classList.add("show"); }, 10);
+            setTimeout(() => { messageBox.querySelector(".message-box").classList.remove("show"); setTimeout(() => messageBox.remove(), 300); }, 3000);
+        }
+
+        /**
+         * Cambia la pantalla actual de la aplicación y renderiza la nueva.
+         * @param {string} screen - El nombre de la pantalla a mostrar.
+         */
+        window.setScreen = (screen) => { 
+            state.currentScreen = screen; 
+            render(); 
+        }
+
+        /**
+         * Alterna la visibilidad del menú de hamburguesa.
+         */
+        window.toggleMenu = () => {
+            state.isMenuOpen = !state.isMenuOpen;
+            const menu = document.getElementById('hamburger-menu');
+            if (menu) {
+                if (state.isMenuOpen) {
+                    menu.classList.add('open');
+                } else {
+                    menu.classList.remove('open');
+                }
+            }
+        };
+
+        // ---------------- PANTALLAS (VIEWS) ----------------
+        /**
+         * Muestra la pantalla de inicio de sesión.
+         */
+        function renderLoginScreen() {
+            appContainer.innerHTML = `<div class="p-8 flex flex-col h-full bg-[#f0fdf4] auth-container">
+                <div class="text-center mb-8">
+                    <img src="https://placehold.co/100x100/a7f3d0/34d399?text=UABC" alt="Logo UABC" class="mx-auto rounded-full mb-4">
+                    <h1 class="text-3xl font-bold text-gray-800">DOCENTE</h1>
+                    <p class="text-gray-500 mt-2">Ingresa tu PIN para continuar</p>
+                </div>
+                <div class="w-full space-y-4">
+                    <input id="login-pin" type="tel" placeholder="Ingresa tu PIN" class="w-full p-4 text-center rounded-xl border border-gray-300">
+                    <button onclick="window.handleLogin()" class="w-full bg-[#34d399] text-white p-4 rounded-xl font-semibold hover:bg-[#10b981] transition-colors duration-200">Acceder</button>
+                </div></div>`;
+        }
+
+        /**
+         * Muestra la lista de clases.
+         */
+        function renderClassesScreen() {
+            const classesHtml = classes.map(c => `<div onclick="window.setSelectedClass('${c.id}')" class="class-card bg-white p-4 rounded-2xl shadow-sm hover:shadow-md cursor-pointer text-center">
+                <h3 class="text-xl font-semibold text-gray-700">${c.name}</h3>
+                <p class="text-sm text-gray-500">${c.group}</p>
+            </div>`).join("");
+            
+            appContainer.innerHTML = `<div class="p-8 h-full flex flex-col bg-[#f0fdf4]">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-2xl font-bold text-gray-800">Mis Clases</h2>
+                    <button onclick="window.toggleMenu()" class="text-gray-600 text-2xl hover:text-gray-800">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                </div>
+
+                <div class="flex flex-col items-center justify-center p-4 mb-6">
+                    <input type="file" id="photo-upload" class="hidden" accept="image/*">
+                    <div onclick="document.getElementById('photo-upload').click()" class="relative w-24 h-24 rounded-full border-4 border-green-500 shadow-lg cursor-pointer flex items-center justify-center overflow-hidden mb-2 group">
+                        <img id="profile-photo" src="${teacherProfile.photo}" alt="Foto de Perfil" class="w-full h-full object-cover">
+                        <div class="absolute inset-0 bg-black bg-opacity-40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                            <i class="fas fa-camera text-white text-3xl"></i>
+                        </div>
+                    </div>
+                    <span id="teacher-name" onclick="window.handleNameEdit()" class="text-xl font-semibold text-gray-800 cursor-pointer p-1 rounded hover:bg-gray-100">${teacherProfile.name}</span>
+                </div>
+                
+                <div class="flex flex-col space-y-4 flex-grow overflow-y-auto">
+                    ${classesHtml}
+                </div>
+                
+                <div id="hamburger-menu" class="hamburger-menu flex flex-col p-8">
+                    <div class="flex justify-end mb-8">
+                        <button onclick="window.toggleMenu()" class="text-gray-600 text-2xl hover:text-gray-800">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <div class="flex flex-col space-y-4">
+                        <button onclick="window.setScreen('history'); window.toggleMenu();" class="btn-secondary font-semibold">Ver Historial</button>
+                        <button onclick="window.showExportModal(); window.toggleMenu();" class="btn-secondary font-semibold">Exportar Datos</button>
+                        <input type="file" id="importFile" class="hidden" accept=".xlsx">
+                        <button onclick="document.getElementById('importFile').click(); window.toggleMenu();" class="btn-secondary font-semibold">Importar Datos</button>
+                        <button onclick="window.setScreen('login'); window.toggleMenu();" class="btn-secondary font-semibold">Cerrar Sesión</button>
+                    </div>
+                </div>
+            </div>`;
+            document.getElementById('importFile').addEventListener('change', window.handleImportFile, false);
+            document.getElementById('photo-upload').addEventListener('change', window.handlePhotoUpload, false);
+            const menu = document.getElementById('hamburger-menu');
+            if (state.isMenuOpen) {
+                menu.classList.add('open');
+            }
+        }
+
+        /**
+         * Muestra la vista de estudiantes en carrusel.
+         */
+        function renderStudentsScreen() {
+            const currentClass = classes.find(c => c.id === state.selectedClass);
+            if (!currentClass) {
+                appContainer.innerHTML = `<div class="p-8 h-full flex flex-col bg-[#f0fdf4]">
+                    <p class="text-gray-500 text-center mt-8">No se encontró la clase.</p>
+                    <button onclick="window.setScreen('classes')" class="w-full mt-4 bg-gray-500 text-white p-3 rounded-lg hover:bg-gray-600">Volver a Clases</button>
+                </div>`;
+                return;
+            }
+            
+            // Renderiza el botón de cambio de vista
+            const viewSwitchButton = `
+                <div class="relative">
+                    <button onclick="document.getElementById('view-options').classList.toggle('hidden')" class="text-sm text-green-600 hover:text-green-800 font-semibold transition-colors">
+                        <i class="fas fa-arrows-alt-h mr-1"></i> Cambiar Vista
+                    </button>
+                    <div id="view-options" class="hidden absolute right-0 mt-2 w-40 bg-white rounded-md shadow-lg z-10 py-1">
+                        <button onclick="window.toggleViewMode('carousel');" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100">Carrusel</button>
+                        <button onclick="window.toggleViewMode('list-paginated');" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100">Lista (Paginada)</button>
+                        <button onclick="window.toggleViewMode('list-full');" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100">Lista (Completa)</button>
+                    </div>
+                </div>
+            `;
+
+
+            const currentStudent = students[state.currentStudentIndex];
+            const studentHtml = currentStudent ? `
+                <div class="flex flex-col items-center justify-center p-8 text-center space-y-4">
+                    <img src="${avatars[state.currentStudentIndex % avatars.length]}" class="w-32 h-32 rounded-full border-4 border-green-500 shadow-lg" alt="Avatar de estudiante">
+                    <p class="text-xs text-gray-500 mt-1">${currentStudent.id}</p>
+                    <div class="bg-green-100 text-green-800 font-bold py-2 px-4 rounded-xl text-lg">${currentStudent.name}</div>
+                    <div class="flex flex-row space-x-2 justify-end w-full"> 
+                        <button onclick="window.markAttendance('${currentStudent.id}', 'Presente', true)" class="attendance-btn-present w-20 h-20 rounded-full flex items-center justify-center text-3xl shadow-md">✅</button>
+                        <button onclick="window.markAttendance('${currentStudent.id}', 'Tarde', true)" class="attendance-btn-late w-20 h-20 rounded-full flex items-center justify-center text-3xl shadow-md">🟡</button>
+                        <button onclick="window.markAttendance('${currentStudent.id}', 'Ausente', true)" class="attendance-btn-absent w-20 h-20 rounded-full flex items-center justify-center text-3xl shadow-md">❌</button>
+                    </div>
+                </div>
+            ` : `<p class="text-gray-500 text-center">No hay estudiantes en esta clase.</p>`;
+            
+            appContainer.innerHTML = `
+                <div class="p-8 h-full flex flex-col bg-[#f0fdf4]">
+                    <div class="flex justify-between items-center mb-4">
+                        <button onclick="window.setScreen('classes')" class="text-gray-600 hover:text-gray-800 text-xl"><i class="fas fa-arrow-left"></i></button>
+                        <h2 class="text-2xl font-bold text-gray-800">${currentClass.name}</h2>
+                        ${viewSwitchButton}
+                    </div>
+                    <div class="flex-grow flex items-center justify-center relative">
+                        ${studentHtml}
+                        <button onclick="window.previousStudent()" class="absolute left-0 p-2 text-3xl text-gray-500 hover:text-gray-800 transition-colors">
+                            <i class="fas fa-chevron-left"></i>
+                        </button>
+                        <button onclick="window.nextStudent()" class="absolute right-0 p-2 text-3xl text-gray-500 hover:text-gray-800 transition-colors">
+                            <i class="fas fa-chevron-right"></i>
+                        </button>
+                    </div>
+                    <button onclick="window.setScreen('classes')" class="btn-green mt-6 font-semibold">Volver a Clases</button>
+                </div>`;
+        }
+
+        /**
+         * Muestra la vista de estudiantes en lista con paginación para el primer pase de lista.
+         */
+        function renderListStudentsScreen() {
+            const currentClass = classes.find(c => c.id === state.selectedClass);
+            if (!currentClass) {
+                appContainer.innerHTML = `<div class="p-8 h-full flex flex-col bg-[#f0fdf4]">
+                    <p class="text-gray-500 text-center mt-8">No se encontró la clase.</p>
+                    <button onclick="window.setScreen('classes')" class="w-full mt-4 bg-gray-500 text-white p-3 rounded-lg hover:bg-gray-600">Volver a Clases</button>
+                </div>`;
+                return;
+            }
+
+            const startIndex = state.currentPage * pageSize;
+            const endIndex = startIndex + pageSize;
+            const studentsForPage = students.slice(startIndex, endIndex);
+            const totalPages = Math.ceil(students.length / pageSize);
+            
+            // Renderiza el botón de cambio de vista
+            const viewSwitchButton = `
+                <div class="relative">
+                    <button onclick="document.getElementById('view-options').classList.toggle('hidden')" class="text-sm text-green-600 hover:text-green-800 font-semibold transition-colors">
+                        <i class="fas fa-arrows-alt-h mr-1"></i> Cambiar Vista
+                    </button>
+                    <div id="view-options" class="hidden absolute right-0 mt-2 w-40 bg-white rounded-md shadow-lg z-10 py-1">
+                        <button onclick="window.toggleViewMode('carousel');" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100">Carrusel</button>
+                        <button onclick="window.toggleViewMode('list-paginated');" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100">Lista (Paginada)</button>
+                        <button onclick="window.toggleViewMode('list-full');" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100">Lista (Completa)</button>
+                    </div>
+                </div>
+            `;
+
+            const studentListHtml = studentsForPage.map((s, index) => {
+                const attendanceStatus = state.tempAttendance[s.id] || "Sin registrar";
+                let statusColor = 'text-gray-500';
+                if (attendanceStatus === 'Presente') statusColor = 'text-green-500';
+                if (attendanceStatus === 'Tarde') statusColor = 'text-yellow-500';
+                if (attendanceStatus === 'Ausente') statusColor = 'text-red-500';
+
+                return `<div class="bg-white p-4 rounded-xl shadow-sm flex flex-col items-center transition-colors duration-200">
+                    <div class="flex items-center space-x-4 w-full mb-4">
+                        <img src="${avatars[index % avatars.length]}" class="w-12 h-12 rounded-full border-2 border-gray-300" alt="Avatar de estudiante">
+                        <div>
+                            <p class="font-semibold text-gray-700 whitespace-nowrap overflow-hidden text-ellipsis">${s.name}</p>
+                            <p class="text-xs text-gray-400 mt-1">${s.id}</p>
+                            <p class="text-sm ${statusColor}">${attendanceStatus}</p>
+                        </div>
+                    </div>
+                    <div class="flex flex-row space-x-2 justify-end w-full">
+                        <button onclick="window.markAttendance('${s.id}', 'Presente')" class="w-12 h-12 rounded-full flex items-center justify-center bg-green-500 text-white text-lg hover:bg-green-600 transition-colors">✅</button>
+                        <button onclick="window.markAttendance('${s.id}', 'Tarde')" class="w-12 h-12 rounded-full flex items-center justify-center bg-yellow-500 text-white text-lg hover:bg-yellow-600 transition-colors">🟡</button>
+                        <button onclick="window.markAttendance('${s.id}', 'Ausente')" class="w-12 h-12 rounded-full flex items-center justify-center bg-red-500 text-white text-lg hover:bg-red-600 transition-colors">❌</button>
+                    </div>
+                </div>`;
+            }).join('');
+            
+            appContainer.innerHTML = `
+                <div class="p-8 h-full flex flex-col bg-[#f0fdf4]">
+                    <div class="flex justify-between items-center mb-4">
+                        <button onclick="window.setScreen('classes')" class="text-gray-600 hover:text-gray-800 text-xl"><i class="fas fa-arrow-left"></i></button>
+                        <h2 class="text-2xl font-bold text-gray-800">${currentClass.name}</h2>
+                        ${viewSwitchButton}
+                    </div>
+                    <div class="space-y-4 flex-grow overflow-y-auto">
+                        ${studentListHtml}
+                    </div>
+                    <div class="mt-4 flex justify-between items-center">
+                        <button onclick="window.previousPage()" class="btn-secondary font-semibold" ${state.currentPage === 0 ? 'disabled' : ''}>Anterior</button>
+                        <span class="text-gray-600">Página ${state.currentPage + 1} de ${totalPages}</span>
+                        ${state.currentPage + 1 < totalPages ? 
+                            `<button onclick="window.nextPage()" class="btn-secondary font-semibold">Siguiente</button>` :
+                            `<button onclick="window.handleSaveAttendance()" class="btn-green font-semibold">Guardar Asistencia</button>`
+                        }
+                    </div>
+                </div>`;
+        }
+        
+        /**
+         * Muestra la vista de estudiantes en lista completa sin paginación.
+         */
+        function renderFullListStudentsScreen() {
+            const currentClass = classes.find(c => c.id === state.selectedClass);
+            if (!currentClass) {
+                appContainer.innerHTML = `<div class="p-8 h-full flex flex-col bg-[#f0fdf4]">
+                    <p class="text-gray-500 text-center mt-8">No se encontró la clase.</p>
+                    <button onclick="window.setScreen('classes')" class="w-full mt-4 bg-gray-500 text-white p-3 rounded-lg hover:bg-gray-600">Volver a Clases</button>
+                </div>`;
+                return;
+            }
+
+            const studentsForPage = students; // Muestra a todos los estudiantes
+
+            const studentListHtml = studentsForPage.map((s, index) => {
+                const attendanceStatus = state.tempAttendance[s.id] || "Sin registrar";
+                let statusColor = 'text-gray-500';
+                if (attendanceStatus === 'Presente') statusColor = 'text-green-500';
+                if (attendanceStatus === 'Tarde') statusColor = 'text-yellow-500';
+                if (attendanceStatus === 'Ausente') statusColor = 'text-red-500';
+
+                return `<div class="bg-white p-4 rounded-xl shadow-sm flex flex-col items-center transition-colors duration-200">
+                    <div class="flex items-center space-x-4 w-full mb-4">
+                        <img src="${avatars[index % avatars.length]}" class="w-12 h-12 rounded-full border-2 border-gray-300" alt="Avatar de estudiante">
+                        <div>
+                            <p class="font-semibold text-gray-700 whitespace-nowrap overflow-hidden text-ellipsis">${s.name}</p>
+                            <p class="text-xs text-gray-400 mt-1">${s.id}</p>
+                            <p class="text-sm ${statusColor}">${attendanceStatus}</p>
+                        </div>
+                    </div>
+                    <div class="flex flex-row space-x-2 justify-end w-full">
+                        <button onclick="window.markAttendance('${s.id}', 'Presente')" class="w-12 h-12 rounded-full flex items-center justify-center bg-green-500 text-white text-lg hover:bg-green-600 transition-colors">✅</button>
+                        <button onclick="window.markAttendance('${s.id}', 'Tarde')" class="w-12 h-12 rounded-full flex items-center justify-center bg-yellow-500 text-white text-lg hover:bg-yellow-600 transition-colors">🟡</button>
+                        <button onclick="window.markAttendance('${s.id}', 'Ausente')" class="w-12 h-12 rounded-full flex items-center justify-center bg-red-500 text-white text-lg hover:bg-red-600 transition-colors">❌</button>
+                    </div>
+                </div>`;
+            }).join('');
+
+            // Renderiza el botón de cambio de vista
+            const viewSwitchButton = `
+                <div class="relative">
+                    <button onclick="document.getElementById('view-options').classList.toggle('hidden')" class="text-sm text-green-600 hover:text-green-800 font-semibold transition-colors">
+                        <i class="fas fa-arrows-alt-h mr-1"></i> Cambiar Vista
+                    </button>
+                    <div id="view-options" class="hidden absolute right-0 mt-2 w-40 bg-white rounded-md shadow-lg z-10 py-1">
+                        <button onclick="window.toggleViewMode('carousel');" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100">Carrusel</button>
+                        <button onclick="window.toggleViewMode('list-paginated');" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100">Lista (Paginada)</button>
+                        <button onclick="window.toggleViewMode('list-full');" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100">Lista (Completa)</button>
+                    </div>
+                </div>
+            `;
+            
+            appContainer.innerHTML = `
+                <div class="p-8 h-full flex flex-col bg-[#f0fdf4]">
+                    <div class="flex justify-between items-center mb-4">
+                        <button onclick="window.setScreen('classes')" class="text-gray-600 hover:text-gray-800 text-xl"><i class="fas fa-arrow-left"></i></button>
+                        <h2 class="text-2xl font-bold text-gray-800">${currentClass.name}</h2>
+                        ${viewSwitchButton}
+                    </div>
+                    <div class="space-y-4 flex-grow overflow-y-auto">
+                        ${studentListHtml}
+                    </div>
+                    <div class="mt-4 text-center">
+                        <button onclick="window.handleSaveAttendance()" class="btn-green font-semibold w-full">Guardar Asistencia</button>
+                    </div>
+                </div>`;
+        }
+
+        /**
+         * Muestra la vista de estudiantes en lista con paginación para la actualización.
+         */
+        function renderUpdateListScreen() {
+            const currentClass = classes.find(c => c.id === state.selectedClass);
+            if (!currentClass) {
+                appContainer.innerHTML = `<div class="p-8 h-full flex flex-col bg-[#f0fdf4]">
+                    <p class="text-gray-500 text-center mt-8">No se encontró la clase.</p>
+                    <button onclick="window.setScreen('history')" class="w-full mt-4 bg-gray-500 text-white p-3 rounded-lg hover:bg-gray-600">Volver a Historial</button>
+                </div>`;
+                return;
+            }
+            
+            const studentsForPage = students; // Muestra a todos los estudiantes en la lista de actualización
+            
+            // Renderiza el botón de cambio de vista
+            const viewSwitchButton = `
+                <div class="relative">
+                    <button onclick="document.getElementById('view-options').classList.toggle('hidden')" class="text-sm text-green-600 hover:text-green-800 font-semibold transition-colors">
+                        <i class="fas fa-arrows-alt-h mr-1"></i> Cambiar Vista
+                    </button>
+                    <div id="view-options" class="hidden absolute right-0 mt-2 w-40 bg-white rounded-md shadow-lg z-10 py-1">
+                        <button onclick="window.toggleViewMode('carousel');" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100">Carrusel</button>
+                        <button onclick="window.toggleViewMode('list-paginated');" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100">Lista (Paginada)</button>
+                        <button onclick="window.toggleViewMode('list-full');" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100">Lista (Completa)</button>
+                    </div>
+                </div>
+            `;
+
+            const studentListHtml = studentsForPage.map((s, index) => {
+                const attendanceStatus = state.tempAttendance[s.id] || "Sin registrar";
+                let statusColor = 'text-gray-500';
+                if (attendanceStatus === 'Presente') statusColor = 'text-green-500';
+                if (attendanceStatus === 'Tarde') statusColor = 'text-yellow-500';
+                if (attendanceStatus === 'Ausente') statusColor = 'text-red-500';
+
+                return `<div class="bg-white p-4 rounded-xl shadow-sm flex items-center justify-between transition-colors duration-200">
+                    <div class="flex items-center space-x-4 flex-grow">
+                        <img src="${avatars[index % avatars.length]}" class="w-12 h-12 rounded-full border-2 border-gray-300" alt="Avatar de estudiante">
+                        <div>
+                            <p class="font-semibold text-gray-700 whitespace-nowrap overflow-hidden text-ellipsis">${s.name}</p>
+                            <p class="text-xs text-gray-400 mt-1">${s.id}</p>
+                            <p class="text-sm ${statusColor}">${attendanceStatus}</p>
+                        </div>
+                    </div>
+                    <div class="flex flex-row space-x-2 justify-end w-full">
+                        <button onclick="window.markAttendance('${s.id}', 'Presente')" class="w-12 h-12 rounded-full flex items-center justify-center bg-green-500 text-white text-lg hover:bg-green-600 transition-colors">✅</button>
+                        <button onclick="window.markAttendance('${s.id}', 'Tarde')" class="w-12 h-12 rounded-full flex items-center justify-center bg-yellow-500 text-white text-lg hover:bg-yellow-600 transition-colors">🟡</button>
+                        <button onclick="window.markAttendance('${s.id}', 'Ausente')" class="w-12 h-12 rounded-full flex items-center justify-center bg-red-500 text-white text-lg hover:bg-red-600 transition-colors">❌</button>
+                    </div>
+                </div>`;
+            }).join('');
+            
+            appContainer.innerHTML = `
+                <div class="p-8 h-full flex flex-col bg-[#f0fdf4]">
+                    <div class="flex justify-between items-center mb-4">
+                        <button onclick="window.setScreen('history')" class="text-gray-600 hover:text-gray-800 text-xl"><i class="fas fa-arrow-left"></i></button>
+                        <h2 class="text-2xl font-bold text-gray-800">Actualizar Asistencia</h2>
+                        ${viewSwitchButton}
+                    </div>
+                    <div class="space-y-4 flex-grow overflow-y-auto">
+                        ${studentListHtml}
+                    </div>
+                    <div class="mt-4 text-center">
+                        <button onclick="window.handleUpdateAttendance()" class="btn-green font-semibold w-full">Guardar Actualización</button>
+                    </div>
+                </div>`;
+        }
+        
+        /**
+         * Muestra la vista de estudiantes en modo de solo lectura, para ver un registro de historial.
+         */
+        function renderViewHistoryListScreen() {
+            const currentClass = classes.find(c => c.id === state.selectedClass);
+            if (!currentClass) {
+                appContainer.innerHTML = `<div class="p-8 h-full flex flex-col bg-[#f0fdf4]">
+                    <p class="text-gray-500 text-center mt-8">No se encontró la clase.</p>
+                    <button onclick="window.setScreen('history')" class="w-full mt-4 bg-gray-500 text-white p-3 rounded-lg hover:bg-gray-600">Volver a Historial</button>
+                </div>`;
+                return;
+            }
+
+            const record = allHistoryRecords.find(r => r.id === state.recordToUpdateId);
+            const recordType = record.isUpdate ? "Última Actualización" : "Pase de Lista Original";
+            
+            const studentListHtml = students.map((s, index) => {
+                const attendanceStatus = state.tempAttendance[s.id] || "Sin registrar";
+                let statusColor = 'text-gray-500';
+                if (attendanceStatus === 'Presente') statusColor = 'text-green-500';
+                if (attendanceStatus === 'Tarde') statusColor = 'text-yellow-500';
+                if (attendanceStatus === 'Ausente') statusColor = 'text-red-500';
+
+                return `<div class="bg-white p-4 rounded-xl shadow-sm flex items-center justify-between">
+                    <div class="flex items-center space-x-4">
+                        <img src="${avatars[index % avatars.length]}" class="w-12 h-12 rounded-full border-2 border-gray-300" alt="Avatar de estudiante">
+                        <div>
+                            <p class="font-semibold text-gray-700 whitespace-nowrap overflow-hidden text-ellipsis">${s.name}</p>
+                            <p class="text-xs text-gray-400 mt-1">${s.id}</p>
+                            <p class="text-sm ${statusColor}">${attendanceStatus}</p>
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+            
+            appContainer.innerHTML = `
+                <div class="p-8 h-full flex flex-col bg-[#f0fdf4]">
+                    <div class="flex justify-between items-center mb-4">
+                        <button onclick="window.setScreen('history')" class="text-gray-600 hover:text-gray-800 text-xl"><i class="fas fa-arrow-left"></i></button>
+                        <h2 class="text-2xl font-bold text-gray-800">${currentClass.name}</h2>
+                    </div>
+                    <p class="text-sm text-gray-500 mb-4">${recordType}</p>
+                    <div class="space-y-4 flex-grow overflow-y-auto">
+                        ${studentListHtml}
+                    </div>
+                    <div class="mt-4 text-center">
+                        <button onclick="window.setScreen('history')" class="btn-green font-semibold w-full">Volver a Historial</button>
+                    </div>
+                </div>`;
+        }
+
+
+        /**
+         * Muestra la pantalla de historial de asistencia, con registros guardados.
+         */
+        function renderHistoryScreen() {
+            // Filtra los registros por la fecha seleccionada
+            const recordsForDate = allHistoryRecords.filter(record => {
+                const recordDate = new Date(record.createdAt).toISOString().slice(0, 10);
+                return recordDate === state.selectedHistoryDate;
+            });
+            
+            // Agrupa los registros por clase
+            const historyByClass = recordsForDate.reduce((acc, record) => {
+                if (!acc[record.classId]) {
+                    acc[record.classId] = [];
+                }
+                acc[record.classId].push(record);
+                return acc;
+            }, {});
+
+            let historyHtml = '';
+            
+            // Itera sobre cada clase para mostrar el primer y último registro
+            for (const classId in historyByClass) {
+                const classRecords = historyByClass[classId].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+                const firstRecord = classRecords[0];
+                const lastRecord = classRecords[classRecords.length - 1];
+                const className = classes.find(c => c.id === classId)?.name || 'Desconocida';
+                
+                // Muestra el primer pase de lista
+                historyHtml += `
+                    <div class="history-card p-4 rounded-xl shadow-md mb-4 flex justify-between items-center">
+                        <div class="flex-grow">
+                            <div class="flex items-center space-x-2 mb-1">
+                                <h3 class="text-lg font-bold text-gray-800">${new Date(firstRecord.createdAt).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</h3>
+                                <span class="text-white px-3 py-1 rounded-full text-xs font-semibold bg-green-500">Pase de Lista Original</span>
+                            </div>
+                            <p class="text-sm text-gray-500">Clase: ${className}</p>
+                        </div>
+                        <div class="flex flex-col space-y-2 items-end">
+                            <button onclick="window.viewHistoryRecord('${firstRecord.id}')" class="bg-gray-500 text-white px-3 py-1 rounded-lg font-bold hover:bg-gray-600 transition-colors text-sm">
+                                Ver Lista
+                            </button>
+                            <button onclick="window.startNewUpdate('${firstRecord.id}')" class="bg-blue-500 text-white px-3 py-1 rounded-lg font-bold hover:bg-blue-600 transition-colors text-sm">
+                                Actualizar
+                            </button>
+                        </div>
+                    </div>`;
+
+                // Si hay una actualización (el último registro es diferente al primero), lo muestra
+                if (lastRecord.id !== firstRecord.id) {
+                     historyHtml += `
+                        <div class="history-card p-4 rounded-xl shadow-md mb-4 flex justify-between items-center updated">
+                            <div class="flex-grow">
+                                <div class="flex items-center space-x-2 mb-1">
+                                    <h3 class="text-lg font-bold text-gray-800">${new Date(lastRecord.createdAt).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</h3>
+                                    <span class="text-white px-3 py-1 rounded-full text-xs font-semibold bg-yellow-500">Última Actualización</span>
+                                </div>
+                                <p class="text-sm text-gray-500">Clase: ${className}</p>
+                            </div>
+                            <div class="flex flex-col space-y-2 items-end">
+                                <button onclick="window.viewHistoryRecord('${lastRecord.id}')" class="bg-gray-500 text-white px-3 py-1 rounded-lg font-bold hover:bg-gray-600 transition-colors text-sm">
+                                    Ver Lista
+                                </button>
+                                <button onclick="window.startNewUpdate('${lastRecord.id}')" class="bg-blue-500 text-white px-3 py-1 rounded-lg font-bold hover:bg-blue-600 transition-colors text-sm">
+                                    Actualizar
+                                </button>
+                                <button onclick="window.handleDeleteRecord('${lastRecord.id}')" class="bg-red-500 text-white px-3 py-1 rounded-lg font-bold hover:bg-red-600 transition-colors text-sm">
+                                    Eliminar
+                                </button>
+                            </div>
+                        </div>`;
+                }
+            }
+
+            if (historyHtml === '') {
+                 historyHtml = `<p class="mt-4 text-gray-600 text-center">No hay registros para este día.</p>`;
+            }
+            
+            appContainer.innerHTML = `
+                <div class="p-8 h-full flex flex-col bg-[#f0fdf4]">
+                    <h2 class="text-2xl font-bold text-gray-800 mb-4 text-center">Historial de Asistencia</h2>
+                    <div class="mb-4">
+                        <label for="history-date" class="block text-gray-600 font-semibold mb-2">Selecciona una fecha:</label>
+                        <input type="date" id="history-date" value="${state.selectedHistoryDate}" onchange="window.selectHistoryDate(this.value)" class="w-full p-2 border rounded-md">
+                    </div>
+                    <div class="space-y-4 flex-grow overflow-y-auto">
+                        ${historyHtml}
+                    </div>
+                    <button onclick="window.setScreen('classes')" class="btn-green mt-6 font-semibold">Volver a Clases</button>
+                </div>`;
+        }
+        
+        // ---------------- CONTROLADORES DE LÓGICA ----------------
+        /**
+         * Maneja el inicio de sesión con el PIN.
+         */
+        window.handleLogin = () => {
+            const pin = document.getElementById("login-pin").value;
+            if (pin === '1234') { // PIN de prueba
+                showMessage("Acceso exitoso");
+                window.setScreen("classes");
+            } else {
+                showMessage("PIN incorrecto", "error");
+            }
+        }
+
+        /**
+         * Maneja la edición del nombre del docente.
+         */
+        window.handleNameEdit = () => {
+            const nameElement = document.getElementById('teacher-name');
+            const currentName = nameElement.textContent;
+            nameElement.innerHTML = `<input type="text" id="name-input" value="${currentName}" class="text-center bg-transparent border-b border-gray-400 focus:outline-none focus:border-green-500">`;
+            const input = document.getElementById('name-input');
+            input.focus();
+            input.select();
+            
+            input.addEventListener('blur', window.saveTeacherName);
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    input.blur();
+                }
+            });
+        };
+
+        /**
+         * Guarda el nombre del docente al salir del campo de texto.
+         */
+        window.saveTeacherName = () => {
+            const input = document.getElementById('name-input');
+            if (!input) return;
+
+            const newName = input.value.trim();
+            if (newName && newName !== teacherProfile.name) {
+                teacherProfile.name = newName;
+                saveData();
+                showMessage("Nombre actualizado");
+            }
+            // Volver a renderizar para mostrar el nombre como texto plano
+            render();
+        };
+
+        /**
+         * Maneja la carga de una nueva foto de perfil.
+         */
+        window.handlePhotoUpload = (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const photoUrl = e.target.result;
+                teacherProfile.photo = photoUrl;
+                saveData();
+                showMessage("Foto de perfil actualizada");
+                render();
+            };
+            reader.readAsDataURL(file);
+        };
+
+        /**
+         * Establece la clase seleccionada y prepara la vista de estudiantes.
+         * @param {string} classId - El ID de la clase seleccionada.
+         */
+        window.setSelectedClass = (classId) => {
+            state.selectedClass = classId;
+            state.currentStudentIndex = 0;
+            state.currentPage = 0;
+            state.viewMode = 'list-full'; // Inicia directamente en la vista de lista completa
+            state.tempAttendance = {}; // Limpia la asistencia temporal
+            state.isUpdating = false;
+            state.recordToUpdateId = null;
+            window.setScreen("fullListStudents");
+        };
+
+        /**
+         * Maneja el cambio de vista de carrusel a lista y viceversa.
+         * @param {string} mode - El modo de vista a cambiar ('carousel', 'list-paginated', 'list-full').
+         */
+        window.toggleViewMode = (mode) => {
+            // Verifica que todos los estudiantes hayan sido marcados antes de cambiar de vista
+            const allMarked = students.every(s => state.tempAttendance[s.id]);
+            if (!allMarked && Object.keys(state.tempAttendance).length > 0) {
+                 showMessage("Por favor, marca la asistencia de todos los estudiantes antes de cambiar de vista.", "error");
+                 return;
+            }
+
+            state.viewMode = mode;
+            state.currentPage = 0; // Reinicia la paginación al cambiar de vista
+            switch (mode) {
+                case 'carousel':
+                    window.setScreen('students');
+                    break;
+                case 'list-paginated':
+                    window.setScreen('listStudents');
+                    break;
+                case 'list-full':
+                    window.setScreen('fullListStudents');
+                    break;
+            }
+        };
+
+        /**
+         * Maneja la navegación a la página anterior en la vista de lista.
+         */
+        window.previousPage = () => {
+            if (state.currentPage > 0) {
+                state.currentPage--;
+                render();
+            }
+        };
+
+        /**
+         * Maneja la navegación a la página siguiente en la vista de lista.
+         */
+        window.nextPage = () => {
+            // Valida que todos los estudiantes de la página actual estén marcados
+            const startIndex = state.currentPage * pageSize;
+            const endIndex = startIndex + pageSize;
+            const studentsForPage = students.slice(startIndex, endIndex);
+
+            const allMarkedOnPage = studentsForPage.every(s => state.tempAttendance[s.id]);
+            if (!allMarkedOnPage) {
+                showMessage("Por favor, marca la asistencia de todos los estudiantes de esta página.", "error");
+                return;
+            }
+            
+            const totalPages = Math.ceil(students.length / pageSize);
+            if (state.currentPage + 1 < totalPages) {
+                state.currentPage++;
+                render();
+            }
+        };
+
+        /**
+         * Marca la asistencia de un estudiante.
+         * @param {string} studentId - El ID del estudiante.
+         * @param {string} status - El estado de asistencia ('Presente', 'Tarde', 'Ausente').
+         * @param {boolean} autoNext - Si se debe avanzar automáticamente al siguiente estudiante.
+         */
+        window.markAttendance = (studentId, status, autoNext = false) => {
+            state.tempAttendance = { ...state.tempAttendance, [studentId]: status };
+            render();
+            if (autoNext && state.viewMode === 'carousel') {
+                const currentStudentId = students[state.currentStudentIndex].id;
+                // Solo avanza si el estudiante actual ha sido marcado
+                if (state.tempAttendance[currentStudentId]) {
+                     window.nextStudent();
+                }
+            }
+        };
+        
+        /**
+         * Inicia una nueva actualización a partir de un registro de historial, pero creando un nuevo registro.
+         * @param {string} recordId - El ID del registro de historial que servirá de base para la nueva actualización.
+         */
+        window.startNewUpdate = (recordId) => {
+            const record = allHistoryRecords.find(r => r.id === recordId);
+            if (record) {
+                state.selectedClass = record.classId;
+                state.tempAttendance = { ...record.records };
+                state.isUpdating = true; // Se mantiene el estado de actualización
+                state.recordToUpdateId = null; // **Importante**: No se guarda el ID original.
+                state.currentPage = 0;
+                window.setScreen("updateList");
+            } else {
+                showMessage("Registro no encontrado.", "error");
+            }
+        };
+
+        /**
+         * Muestra una lista de asistencia de un registro de historial en modo de solo lectura.
+         * @param {string} recordId - El ID del registro de historial a visualizar.
+         */
+        window.viewHistoryRecord = (recordId) => {
+            const record = allHistoryRecords.find(r => r.id === recordId);
+            if (record) {
+                state.selectedClass = record.classId;
+                state.tempAttendance = { ...record.records };
+                state.recordToUpdateId = record.id;
+                state.viewingHistoryRecord = true;
+                window.setScreen("viewHistoryList");
+            } else {
+                showMessage("Registro no encontrado.", "error");
+            }
+        };
+
+        /**
+         * Guarda el registro de asistencia inicial en la base de datos.
+         */
+        window.handleSaveAttendance = () => {
+            if (Object.keys(state.tempAttendance).length !== students.length) {
+                showMessage("Por favor, marca la asistencia de todos los estudiantes antes de guardar.", "error");
+                return;
+            }
+            showModal("¿Estás seguro de que quieres guardar el pase de lista inicial?", () => {
+                const now = new Date();
+                const newRecord = { 
+                    id: generateUUID(),
+                    classId: state.selectedClass,
+                    records: { ...state.tempAttendance },
+                    createdAt: now.toISOString(),
+                    isUpdate: false // Marcado como pase de lista inicial
+                };
+                allHistoryRecords.push(newRecord);
+                saveData();
+                showMessage("Asistencia guardada con éxito!");
+                state.tempAttendance = {};
+                state.selectedHistoryDate = now.toISOString().slice(0, 10);
+                window.selectHistoryDate(state.selectedHistoryDate);
+                window.setScreen("classes");
+            });
+        };
+
+        /**
+         * Guarda el registro de asistencia actualizado en la base de datos, siempre creando un nuevo registro.
+         */
+        window.handleUpdateAttendance = () => {
+            // Validar que se hayan marcado todos los estudiantes antes de guardar
+            if (Object.keys(state.tempAttendance).length !== students.length) {
+                showMessage("Por favor, marca la asistencia de todos los estudiantes antes de guardar la actualización.", "error");
+                return;
+            }
+            showModal("¿Estás seguro de que quieres guardar esta actualización?", () => {
+                const now = new Date();
+                const newRecord = { 
+                    id: generateUUID(),
+                    classId: state.selectedClass,
+                    records: { ...state.tempAttendance },
+                    createdAt: now.toISOString(),
+                    isUpdate: true // Marcado como actualización
+                };
+                allHistoryRecords.push(newRecord); // Se añade un nuevo registro al historial
+                saveData();
+                showMessage("Actualización guardada con éxito!");
+                
+                // Limpia el estado de actualización y vuelve al historial
+                state.tempAttendance = {};
+                state.isUpdating = false;
+                state.recordToUpdateId = null;
+                state.selectedHistoryDate = now.toISOString().slice(0, 10);
+                window.selectHistoryDate(state.selectedHistoryDate);
+                window.setScreen("history");
+            });
+        };
+
+        /**
+         * Elimina un registro del historial de asistencia, solicitando el PIN antes de proceder.
+         * @param {string} recordId - El ID del registro a eliminar.
+         */
+        window.handleDeleteRecord = (recordId) => {
+            showPinModal("Para eliminar este registro, por favor, ingresa tu PIN de docente:", () => {
+                const initialLength = allHistoryRecords.length;
+                allHistoryRecords = allHistoryRecords.filter(r => r.id !== recordId);
+                if (allHistoryRecords.length < initialLength) {
+                    saveData();
+                    showMessage("Registro eliminado con éxito!", "success");
+                    // Re-renderiza la pantalla de historial
+                    window.selectHistoryDate(state.selectedHistoryDate);
+                } else {
+                    showMessage("No se pudo encontrar el registro a eliminar.", "error");
+                }
+            });
+        };
+
+        /**
+         * Filtra y muestra los registros de historial para una fecha específica.
+         * @param {string} date - La fecha en formato YYYY-MM-DD.
+         */
+        window.selectHistoryDate = (date) => {
+            state.selectedHistoryDate = date;
+            render();
+        };
+
+        /**
+         * Navega al estudiante anterior en la vista de carrusel.
+         */
+        window.previousStudent = () => {
+            if (state.currentStudentIndex > 0) {
+                state.currentStudentIndex--;
+                render();
+            }
+        };
+
+        /**
+         * Navega al siguiente estudiante en la vista de carrusel.
+         */
+        window.nextStudent = () => {
+            const currentStudentId = students[state.currentStudentIndex].id;
+            // Valida que el estudiante actual haya sido marcado
+            if (!state.tempAttendance[currentStudentId]) {
+                showMessage("Debes marcar la asistencia de este estudiante antes de avanzar.", "error");
+                return;
+            }
+            
+            if (state.currentStudentIndex < students.length - 1) {
+                state.currentStudentIndex++;
+                render();
+            } else {
+                // Si es el último estudiante, guarda la asistencia
+                window.handleSaveAttendance();
+            }
+        };
+
+        // --- Nuevas funciones de Importación y Exportación de datos ---
+        
+        /**
+         * Muestra el modal de opciones de exportación.
+         */
+        window.showExportModal = () => {
+            const modalContainer = document.getElementById("modal-container");
+            const today = new Date().toISOString().slice(0, 10);
+            
+            modalContainer.innerHTML = `<div id="export-modal" class="modal-overlay fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 transition-opacity duration-300">
+                <div class="bg-white rounded-xl shadow-lg p-6 w-11/12 max-w-sm mx-auto text-center transform transition-all scale-95 duration-200 ease-out">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">Opciones de Exportación</h3>
+                    <p class="text-sm text-gray-600 mb-4">Selecciona los criterios para exportar el historial de asistencia.</p>
+                    <div class="text-left space-y-4">
+                        <div>
+                            <label for="export-date" class="block text-gray-700 font-semibold mb-1">Fecha:</label>
+                            <input type="date" id="export-date" value="${today}" class="w-full p-2 border rounded-md">
+                        </div>
+                        <div>
+                            <label for="export-type" class="block text-gray-700 font-semibold mb-1">Tipo de Lista:</label>
+                            <select id="export-type" class="w-full p-2 border rounded-md">
+                                <option value="all">Todos los Registros</option>
+                                <option value="original">Solo Pase de Lista Original</option>
+                                <option value="update">Solo Actualizaciones</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="flex space-x-4 mt-6">
+                        <button onclick="window.handleFilteredExport()" class="flex-grow btn-green font-bold">Exportar</button>
+                        <button onclick="window.hideExportModal()" class="flex-grow bg-gray-300 text-gray-800 p-3 rounded-lg font-bold hover:bg-gray-400 transition-colors">Cancelar</button>
+                    </div>
+                </div>
+            </div>`;
+            setTimeout(() => document.getElementById('export-modal').classList.add('show'), 10);
+        };
+
+        /**
+         * Oculta el modal de opciones de exportación.
+         */
+        window.hideExportModal = () => {
+            const modal = document.getElementById('export-modal');
+            if (modal) {
+                modal.classList.remove('show');
+                setTimeout(() => modal.remove(), 300);
+            }
+        };
+
+        /**
+         * Maneja la exportación con los filtros seleccionados.
+         */
+        window.handleFilteredExport = () => {
+            const date = document.getElementById('export-date').value;
+            const type = document.getElementById('export-type').value;
+            if (typeof XLSX === 'undefined') {
+                showMessage("Error: La librería de exportación aún no está cargada. Intenta de nuevo en unos segundos.", "error");
+                return;
+            }
+
+            // Filtra los registros según las selecciones del usuario
+            const filteredRecords = allHistoryRecords.filter(record => {
+                const recordDate = new Date(record.createdAt).toISOString().slice(0, 10);
+                const isCorrectDate = recordDate === date;
+                let isCorrectType = false;
+
+                if (type === 'all') {
+                    isCorrectType = true;
+                } else if (type === 'original' && !record.isUpdate) {
+                    isCorrectType = true;
+                } else if (type === 'update' && record.isUpdate) {
+                    isCorrectType = true;
+                }
+
+                return isCorrectDate && isCorrectType;
+            });
+
+            if (filteredRecords.length === 0) {
+                showMessage("No se encontraron registros para los filtros seleccionados.", "info");
+                window.hideExportModal();
+                return;
+            }
+
+            // Llamada a la función de exportación con los registros filtrados
+            window.exportDataToExcel(filteredRecords);
+            window.hideExportModal();
+        };
+
+        /**
+         * Exporta los datos de estudiantes y historial a un archivo de Excel.
+         * Ahora acepta un parámetro `recordsToExport`.
+         */
+        window.exportDataToExcel = (recordsToExport) => {
+            // Datos de los estudiantes
+            const studentsData = students.map(s => ({
+                'ID Estudiante': s.id,
+                'Nombre Completo': s.name
+            }));
+            
+            // Datos del historial de asistencia (formato detallado)
+            const historyData = recordsToExport.flatMap(record => {
+                const className = classes.find(c => c.id === record.classId)?.name || 'Desconocida';
+                const date = new Date(record.createdAt).toLocaleDateString('es-MX', { year: 'numeric', month: '2-digit', day: '2-digit' });
+                const time = new Date(record.createdAt).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                
+                return Object.entries(record.records).map(([studentId, status]) => {
+                    const studentName = students.find(s => s.id === studentId)?.name || 'Desconocido';
+                    return {
+                        'Fecha': date,
+                        'Hora': time,
+                        'Clase': className,
+                        'Nombre Estudiante': studentName,
+                        'ID Estudiante': studentId,
+                        'Estado de Asistencia': status,
+                        'Tipo de Registro': record.isUpdate ? 'Actualización' : 'Pase de Lista Inicial'
+                    };
+                });
+            });
+
+            // Crear datos de resumen por clase y fecha
+            const summaryByClass = {};
+            recordsToExport.forEach(record => {
+                const date = new Date(record.createdAt).toLocaleDateString('es-MX', { year: 'numeric', month: '2-digit', day: '2-digit' });
+                const className = classes.find(c => c.id === record.classId)?.name || 'Desconocida';
+                const key = `${date}-${className}`;
+
+                if (!summaryByClass[key]) {
+                    summaryByClass[key] = {
+                        'Fecha': date,
+                        'Clase': className,
+                        'Presentes': 0,
+                        'Tardes': 0,
+                        'Ausentes': 0
+                    };
+                }
+                
+                Object.values(record.records).forEach(status => {
+                    if (status === 'Presente') summaryByClass[key]['Presentes']++;
+                    if (status === 'Tarde') summaryByClass[key]['Tardes']++;
+                    if (status === 'Ausente') summaryByClass[key]['Ausentes']++;
+                });
+            });
+
+            const summaryData = Object.values(summaryByClass);
+
+            // Crear las hojas de cálculo y el archivo final
+            const wsStudents = XLSX.utils.json_to_sheet(studentsData);
+            const wsHistory = XLSX.utils.json_to_sheet(historyData);
+            const wsSummary = XLSX.utils.json_to_sheet(summaryData);
+
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, wsStudents, 'Estudiantes');
+            XLSX.utils.book_append_sheet(wb, wsHistory, 'Historial Detallado');
+            XLSX.utils.book_append_sheet(wb, wsSummary, 'Resumen por Clase');
+
+            const today = new Date().toLocaleDateString('es-MX').replace(/\//g, '-');
+            XLSX.writeFile(wb, `Asistencia_Filtrada_${today}.xlsx`);
+            showMessage("Datos exportados con éxito!", "success");
+        };
+
+        /**
+         * Maneja el archivo de Excel subido para importar datos.
+         * @param {Event} event - El evento de cambio del input de archivo.
+         */
+        window.handleImportFile = (event) => {
+            const file = event.target.files[0];
+            if (!file) {
+                return;
+            }
+            if (typeof XLSX === 'undefined') {
+                showMessage("Error: La librería de importación aún no está cargada. Intenta de nuevo en unos segundos.", "error");
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+
+                    const studentsSheetName = 'Estudiantes';
+                    const historySheetName = 'Historial';
+                    
+                    const newStudents = XLSX.utils.sheet_to_json(workbook.Sheets[studentsSheetName]);
+                    const newHistory = XLSX.utils.sheet_to_json(workbook.Sheets[historySheetName]);
+
+                    // Convertir los datos de historial a un formato compatible
+                    const parsedHistory = {};
+                    newHistory.forEach(row => {
+                        const date = new Date(row['Fecha']); // Convertir fecha a formato ISO
+                        const classId = classes.find(c => c.name === row['Clase'])?.id || 'unknown';
+                        const recordKey = `${classId}-${date.toISOString()}`;
+                        
+                        if (!parsedHistory[recordKey]) {
+                            parsedHistory[recordKey] = {
+                                id: generateUUID(),
+                                classId: classId,
+                                records: {},
+                                createdAt: date.toISOString(),
+                                isUpdate: row['Tipo de Registro'] === 'Actualización'
+                            };
+                        }
+                        parsedHistory[recordKey].records[row['ID Estudiante']] = row['Estado de Asistencia'];
+                    });
+
+                    showModal("¿Estás seguro de que quieres importar estos datos? Se sobrescribirán los datos actuales de la aplicación.", () => {
+                        localStorage.setItem('students', JSON.stringify(newStudents.map(s => ({ id: s['ID Estudiante'], name: s['Nombre Completo'] }))));
+                        localStorage.setItem('history', JSON.stringify(Object.values(parsedHistory)));
+                        loadData();
+                        showMessage("Datos importados con éxito!", "success");
+                        window.setScreen("classes");
+                    }, () => {
+                        showMessage("Importación cancelada.", "info");
+                    });
+                } catch (error) {
+                    console.error("Error al importar el archivo:", error);
+                    showMessage("Error al procesar el archivo. Asegúrate de que el formato sea correcto.", "error");
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        };
+
+        /**
+         * Función central que renderiza la pantalla actual.
+         */
+        function render() {
+            switch (state.currentScreen) {
+                case "login":
+                    renderLoginScreen();
+                    break;
+                case "classes":
+                    renderClassesScreen();
+                    break;
+                case "students":
+                    renderStudentsScreen();
+                    break;
+                case "listStudents":
+                    renderListStudentsScreen();
+                    break;
+                case "fullListStudents": 
+                    renderFullListStudentsScreen();
+                    break;
+                case "updateList":
+                    renderUpdateListScreen();
+                    break;
+                case "history":
+                    renderHistoryScreen();
+                    break;
+                case "viewHistoryList":
+                    renderViewHistoryListScreen();
+                    break;
+                default:
+                    renderLoginScreen();
+            }
+        }
+        
+        /**
+         * Función de inicialización de la aplicación.
+         */
+        function initializeApp() {
+            console.log("Iniciando aplicación...");
+            // Verifica si la librería XLSX está cargada.
+            if (typeof XLSX === 'undefined') {
+                console.warn("XLSX no cargada. Esperando...");
+                // Reintenta después de un breve periodo
+                setTimeout(initializeApp, 100); 
+                return;
+            }
+            
+            console.log("XLSX cargada. Procediendo con la inicialización.");
+            loadData();
+            window.selectHistoryDate(state.selectedHistoryDate);
+            render();
+        }
+
+        /**
+         * Se ejecuta cuando la ventana ha terminado de cargarse.
+         */
+        window.onload = () => {
+             initializeApp();
+        };
+    </script>
+</body>
+</html>
