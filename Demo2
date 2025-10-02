@@ -1,0 +1,2324 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>App de Asistencia con Actualizar Lista (v22)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
+    <style>
+        /* Importa la fuente Poppins de Google Fonts */
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap');
+        
+        /* Estilos generales del cuerpo */
+        body {
+            font-family: 'Poppins', sans-serif;
+            background-color: #f0fdf4; /* Verde pálido */
+        }
+
+        /* Estilos del contenedor de autenticación */
+        .auth-container {
+            background-image: linear-gradient(180deg, #dcfce7, #f0fdf4); /* Gradiente de verde a verde pálido */
+        }
+
+        /* Estilos para las tarjetas de clase y estudiante */
+        .class-card, .student-card {
+            background-color: #dcfce7;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1), 0 1px 3px rgba(0,0,0,0.08);
+            border: 2px solid #a7f3d0;
+        }
+
+        /* Estilos para botones principales de la app */
+        .btn-green {
+            background-color: #4ade80; /* Verde brillante */
+            color: white;
+            padding: 1rem 2rem;
+            border-radius: 9999px; /* Totalmente redondeado */
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1), 0 1px 3px rgba(0,0,0,0.08);
+            transition: transform 0.2s;
+        }
+        
+        .btn-secondary {
+            background-color: #d1d5db; /* Gris claro */
+            color: #4b5563; /* Gris oscuro */
+            padding: 1rem 2rem;
+            border-radius: 9999px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1), 0 1px 3px rgba(0,0,0,0.08);
+            transition: transform 0.2s;
+        }
+        .btn-green:hover {
+            background-color: #22c55e; /* Verde más oscuro al pasar el ratón */
+            transform: scale(1.05); /* Efecto de escala */
+        }
+        .btn-secondary:hover {
+            background-color: #9ca3af; /* Gris más oscuro al pasar el ratón */
+            transform: scale(1.05);
+        }
+
+        /* Estilos para los botones de asistencia */
+        .attendance-btn-present {
+            background-color: #22c55e;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            transition: transform 0.2s;
+        }
+        .attendance-btn-late {
+            background-color: #f59e0b;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            transition: transform 0.2s;
+        }
+        .attendance-btn-absent {
+            background-color: #ef4444;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            transition: transform 0.2s;
+        }
+
+        .attendance-btn-present:hover, .attendance-btn-late:hover, .attendance-btn-absent:hover {
+            transform: scale(1.1);
+        }
+
+        /* Estilos para las tarjetas de los alumnos en la asistencia */
+        .history-card {
+            background-color: #dcfce7;
+            border-left: 4px solid #34d399;
+        }
+        .history-card.updated {
+            background-color: #fffbeb;
+            border-left: 4px solid #f59e0b;
+        }
+        
+        /* Estilos del modal */
+        .modal-overlay {
+            background-color: rgba(0, 0, 0, 0.5);
+            transition: opacity 0.3s ease-in-out;
+            opacity: 0;
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .modal-overlay.show {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        /* Estilos del menú de hamburguesa */
+        .hamburger-menu {
+            position: fixed;
+            top: 0;
+            right: -100%;
+            width: 75%;
+            height: 100%;
+            background-color: white;
+            transition: right 0.3s ease-in-out;
+            z-index: 40;
+            box-shadow: -4px 0 10px rgba(0, 0, 0, 0.1);
+        }
+        
+        .hamburger-menu.open {
+            right: 0;
+        }
+
+        /* Estilos para estudiantes no oficiales */
+        .not-official {
+            border: 2px dashed #f59e0b;
+            background-color: #fffbeb;
+        }
+
+        .official-badge {
+            background-color: #10b981;
+            color: white;
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 9999px;
+        }
+
+        .unofficial-badge {
+            background-color: #f59e0b;
+            color: white;
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 9999px;
+        }
+    </style>
+</head>
+<body class="bg-[#f0fdf4] min-h-screen flex items-center justify-center">
+    <div id="app-container" class="max-w-md mx-auto bg-white shadow-2xl rounded-3xl overflow-hidden w-full h-full min-h-scre"></div>
+    <div id="modal-container"></div>
+    <div id="message-container" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-full max-w-xs p-4"></div>
+    <script>
+        // --- Nuevas funciones de procesamiento de Excel y CSV ---
+        /**
+         * Normaliza el texto para facilitar búsquedas (convierte a minúsculas, elimina acentos).
+         * @param {string} text - El texto a normalizar.
+         * @returns {string} El texto normalizado.
+         */
+        function normalizeText(text) {
+            if (!text) return '';
+            return text.toString().toLowerCase()
+                .normalize("NFD")
+                .replace(/[\u0300-\u036f]/g, "")
+                .trim();
+        }
+                /**
+         * Expande las celdas combinadas de una hoja de Excel, llenando las celdas vacías con el valor de la celda original.
+         * @param {object} sheet - El objeto de la hoja de cálculo de XLSX.
+         */
+        function expandMergedCells(sheet) {
+            if (!sheet['!merges']) return;
+            sheet['!merges'].forEach(range => {
+                const start = range.s;
+                const end = range.e;
+                const cellAddress = XLSX.utils.encode_cell(start);
+                const value = sheet[cellAddress]?.v;
+                if (value !== undefined) {
+                    for (let R = start.r; R <= end.r; ++R) {
+                        for (let C = start.c; C <= end.c; ++C) {
+                            const addr = XLSX.utils.encode_cell({r: R, c: C});
+                            if (!sheet[addr]) {
+                                sheet[addr] = { t: 's', v: value };
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        /**
+         * Extrae información general como materia, grupo y docente del archivo Excel.
+         * @param {object} sheet - El objeto de la hoja de cálculo de XLSX.
+         * @param {Array<Array<any>>} json - Los datos de la hoja en formato JSON.
+         * @returns {object} Un objeto con la información general extraída.
+         */
+        function extractGeneralInfo(sheet, json) {
+            const info = {};
+            const commonCells = [
+                { key: 'materia', cells: ['D3', 'C3', 'B3'] },
+                { key: 'grupo', cells: ['F3', 'E3', 'D3'] },
+                { key: 'docente', cells: ['A5', 'B5', 'C5', 'A4', 'B4', 'C4'] },
+                { key: 'fecha', cells: ['F5'] }
+            ];
+            commonCells.forEach(({ key, cells }) => {
+                for (const cell of cells) {
+                    const value = sheet[cell]?.v;
+                    if (value && value.toString().trim()) {
+                        if (!info[key]) info[key] = value.toString().trim();
+                    }
+                }
+            });
+            for (let i = 0; i < Math.min(json.length, 8); i++) {
+                const row = json[i];
+                if (Array.isArray(row)) {
+                    row.forEach((cell, j) => {
+                        if (cell && typeof cell === 'string') {
+                            const cellNorm = normalizeText(cell);
+                            if (cellNorm.includes('materia') || cellNorm.includes('asignatura')) {
+                                if (row[j + 1]) info.materia = info.materia || row[j + 1].toString();
+                            }
+                            if (cellNorm.includes('grupo')) {
+                                if (row[j + 1]) info.grupo = info.grupo || row[j + 1].toString();
+                            }
+                            if (cellNorm.includes('docente') || cellNorm.includes('profesor')) {
+                                if (row[j + 1]) info.docente = info.docente || row[j + 1].toString();
+                            }
+                        }
+                    });
+                }
+            }
+            return info;
+        }
+       
+        function showMessage(message, type = "info") {
+            const container = document.getElementById("message-container");
+            const alertClasses = {
+                success: "bg-green-500",
+                error: "bg-red-500",
+                info: "bg-blue-500",
+                warning: "bg-yellow-500",
+            };
+            const alertIcon = {
+                success: "fas fa-check-circle",
+                error: "fas fa-times-circle",
+                info: "fas fa-info-circle",
+                warning: "fas fa-exclamation-triangle",
+            };
+
+            const alertDiv = document.createElement("div");
+            alertDiv.className = `p-4 rounded-lg shadow-md text-white flex items-center mb-2 ${alertClasses[type]}`;
+            alertDiv.innerHTML = `<i class="${alertIcon[type]} mr-2 text-lg"></i><span>${message}</span>`;
+            
+            container.appendChild(alertDiv);
+            
+            setTimeout(() => {
+                alertDiv.style.opacity = '0';
+                alertDiv.style.transform = 'translateY(-10px)';
+                setTimeout(() => alertDiv.remove(), 300);
+            }, 3000);
+        }
+
+        // --- Funciones de Renderizado ---
+        function renderLoginScreen() {
+            appContainer.innerHTML = `
+                <div class="auth-container p-8 flex flex-col items-center justify-center min-h-screen">
+                    <img src="https://placehold.co/150x150/d1d5db/4b5563?text=Logo" alt="Logo de la Aplicación" class="mb-8 rounded-full">
+                    <h1 class="text-3xl font-bold text-gray-800 mb-4 text-center">Bienvenido</h1>
+                    <p class="text-gray-600 mb-8 text-center">App de Asistencia para Docentes</p>
+                    <button onclick="showPinModal('Ingresa tu PIN de 4 dígitos para continuar.', () => { state.currentScreen = 'dashboard'; render(); });" class="btn-green w-full max-w-xs text-xl font-semibold transform transition-all hover:scale-105">
+                        <i class="fas fa-lock mr-2"></i> Iniciar Sesión
+                    </button>
+                </div>
+            `;
+        }
+        
+        function renderDashboardScreen() {
+            // ... (implementación de tu código original)
+             appContainer.innerHTML = `
+                <div class="flex flex-col h-full bg-[#f0fdf4]">
+                    <header class="p-6 bg-white shadow-md flex justify-between items-center">
+                        <h1 class="text-xl font-bold">Mis Clases</h1>
+                        <img src="${teacherProfile.photo}" alt="Foto de Docente" class="w-10 h-10 rounded-full">
+                    </header>
+                    <main class="flex-grow p-4 overflow-y-auto">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                            ${classes.map(clase => `
+                                <div onclick="selectClass('${clase.id}')" class="class-card p-4 rounded-xl shadow-lg cursor-pointer transition-transform transform hover:scale-105">
+                                    <h2 class="text-lg font-semibold">${clase.name}</h2>
+                                    <p class="text-sm text-gray-600">${clase.group}</p>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </main>
+                    <footer class="bg-white shadow-inner p-4 flex justify-around items-center">
+                        <button onclick="state.currentScreen='dashboard'; render();" class="text-gray-800 text-center flex flex-col items-center">
+                            <i class="fas fa-home text-xl"></i>
+                            <span class="text-xs mt-1">Inicio</span>
+                        </button>
+                        <button onclick="state.currentScreen='editLists'; render();" class="text-gray-500 text-center flex flex-col items-center hover:text-gray-800">
+                            <i class="fas fa-file-excel text-xl"></i>
+                            <span class="text-xs mt-1">Editar Listas</span>
+                        </button>
+                        <button onclick="state.currentScreen='history'; render();" class="text-gray-500 text-center flex flex-col items-center hover:text-gray-800">
+                            <i class="fas fa-history text-xl"></i>
+                            <span class="text-xs mt-1">Historial</span>
+                        </button>
+                    </footer>
+                </div>
+            `;
+        }
+        
+        function selectClass(classId) {
+            state.selectedClass = classId;
+            state.currentScreen = 'studentAttendance';
+            state.currentStudentIndex = 0;
+            state.tempAttendance = {};
+            render();
+        }
+
+        function recordAttendance(studentId, status) {
+            state.tempAttendance[studentId] = status;
+            const currentStudents = students.filter(s => s.className === classes.find(c => c.id === state.selectedClass).name);
+            state.currentStudentIndex++;
+            if (state.currentStudentIndex >= currentStudents.length) {
+                saveAttendance();
+            } else {
+                render();
+            }
+        }
+        
+        function renderStudentAttendanceScreen() {
+            const currentClass = classes.find(c => c.id === state.selectedClass);
+            if (!currentClass) {
+                state.currentScreen = 'dashboard';
+                render();
+                return;
+            }
+            const currentStudents = students.filter(s => s.className === currentClass.name && s.group === currentClass.group);
+            const currentStudent = currentStudents[state.currentStudentIndex];
+            
+            if (!currentStudent) {
+                appContainer.innerHTML = `<div class="p-8 text-center">
+                    <p class="text-gray-600">No hay estudiantes en esta clase. Por favor, agrega algunos.</p>
+                    <button onclick="state.currentScreen='dashboard'; render();" class="mt-4 btn-secondary text-base">Volver al Inicio</button>
+                </div>`;
+                return;
+            }
+
+            const studentStatus = state.tempAttendance[currentStudent.id] || 'unknown';
+            const statusColor = {
+                presente: 'bg-green-500',
+                tarde: 'bg-yellow-500',
+                ausente: 'bg-red-500',
+                unknown: 'bg-gray-300'
+            };
+
+            appContainer.innerHTML = `
+                <div class="flex flex-col h-full">
+                    <header class="p-6 bg-white shadow-md flex justify-between items-center">
+                        <button onclick="state.currentScreen='dashboard'; render();" class="text-gray-500 hover:text-gray-800"><i class="fas fa-arrow-left text-xl"></i></button>
+                        <h1 class="text-lg font-bold text-center">${currentClass.name} - ${currentClass.group}</h1>
+                        <span class="font-bold text-lg">${state.currentStudentIndex + 1}/${currentStudents.length}</span>
+                    </header>
+                    <main class="flex-grow p-6 flex flex-col items-center justify-center text-center">
+                        <img src="${avatars[state.currentStudentIndex % avatars.length]}" alt="Avatar de Estudiante" class="w-32 h-32 rounded-full mb-6">
+                        <p class="text-gray-500">Matrícula: ${currentStudent.id}</p>
+                        <h2 class="text-3xl font-bold mb-8">${currentStudent.name}</h2>
+                        
+                        <div class="grid grid-cols-3 gap-4 w-full">
+                            <button onclick="window.markAttendance('${currentStudent.id}', 'presente', true)" class="attendance-btn-present p-4 rounded-xl text-white font-bold text-lg flex flex-col items-center justify-center">
+                                <i class="fas fa-check-circle mb-2"></i> Presente
+                            </button>
+                            <button onclick="window.markAttendance('${currentStudent.id}', 'tarde', true)" class="attendance-btn-late p-4 rounded-xl text-white font-bold text-lg flex flex-col items-center justify-center">
+                                <i class="fas fa-clock mb-2"></i> Tarde
+                            </button>
+                            <button onclick="window.markAttendance('${currentStudent.id}', 'ausente', true)" class="attendance-btn-absent p-4 rounded-xl text-white font-bold text-lg flex flex-col items-center justify-center">
+                                <i class="fas fa-times-circle mb-2"></i> Ausente
+                            </button>
+                        </div>
+                    </main>
+                    <footer class="p-4">
+                        <button onclick="window.saveAttendance()" class="btn-green w-full font-semibold">Guardar y Terminar</button>
+                    </footer>
+                </div>
+            `;
+        }
+
+        function renderHistoryScreen() {
+             // Filtra los registros por la fecha seleccionada
+            const recordsForDate = allHistoryRecords.filter(record => {
+                if (!record.date) return false;
+                const recordDate = new Date(record.date).toISOString().slice(0, 10);
+                return recordDate === state.selectedHistoryDate;
+            });
+
+            // Agrupa los registros por clase
+            const historyByClass = recordsForDate.reduce((acc, record) => {
+                if (!acc[record.classId]) {
+                    acc[record.classId] = [];
+                }
+                acc[record.classId].push(record);
+                return acc;
+            }, {});
+
+            let historyHtml = '';
+            
+            // Itera sobre cada clase que tuvo registros en esa fecha
+            for (const classId in historyByClass) {
+                // Ordena los registros de la clase por hora
+                const classRecords = historyByClass[classId].sort((a, b) => new Date(a.date) - new Date(b.date));
+                
+                if(classRecords.length === 0) continue;
+
+                const firstRecord = classRecords[0];
+                const lastRecord = classRecords[classRecords.length - 1];
+                const className = classes.find(c => c.id === classId)?.name || firstRecord.className || 'Desconocida';
+                
+                // Muestra el primer pase de lista del día para esa clase
+                historyHtml += `
+                    <div class="history-card p-4 rounded-xl shadow-md mb-4 flex justify-between items-center">
+                        <div class="flex-grow">
+                            <div class="flex items-center space-x-2 mb-1">
+                                <h3 class="text-lg font-bold text-gray-800">${new Date(firstRecord.date).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</h3>
+                                <span class="text-white px-3 py-1 rounded-full text-xs font-semibold bg-green-500">Pase de Lista Original</span>
+                            </div>
+                            <p class="text-sm text-gray-500">Clase: ${className}</p>
+                        </div>
+                        <div class="flex flex-col space-y-2 items-end">
+                            <button onclick="viewHistoryRecord('${firstRecord.id}')" class="bg-gray-500 text-white px-3 py-1 rounded-lg font-bold hover:bg-gray-600 transition-colors text-sm">
+                                Ver Lista
+                            </button>
+                            <button onclick="window.startNewUpdate('${firstRecord.id}')" class="bg-blue-500 text-white px-3 py-1 rounded-lg font-bold hover:bg-blue-600 transition-colors text-sm">
+                                Actualizar
+                            </button>
+                        </div>
+                    </div>`;
+
+                // Si hay más de un registro, muestra el último como la actualización
+                if (lastRecord.id !== firstRecord.id) {
+                     const label = lastRecord.isCopy ? 'Pase de Lista Copia' : 'Última Actualización';
+                     const labelColor = lastRecord.isCopy ? 'bg-blue-500' : 'bg-yellow-500';
+                     historyHtml += `
+                        <div class="history-card p-4 rounded-xl shadow-md mb-4 flex justify-between items-center updated">
+                            <div class="flex-grow">
+                                <div class="flex items-center space-x-2 mb-1">
+                                    <h3 class="text-lg font-bold text-gray-800">${new Date(lastRecord.date).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</h3>
+                                    <span class="text-white px-3 py-1 rounded-full text-xs font-semibold ${labelColor}">${label}</span>
+                                </div>
+                                <p class="text-sm text-gray-500">Clase: ${className}</p>
+                            </div>
+                            <div class="flex flex-col space-y-2 items-end">
+                                <button onclick="viewHistoryRecord('${lastRecord.id}')" class="bg-gray-500 text-white px-3 py-1 rounded-lg font-bold hover:bg-gray-600 transition-colors text-sm">
+                                    Ver Lista
+                                </button>
+                                <button onclick="window.startNewUpdate('${lastRecord.id}')" class="bg-blue-500 text-white px-3 py-1 rounded-lg font-bold hover:bg-blue-600 transition-colors text-sm">
+                                    Actualizar
+                                </button>
+                                <button onclick="window.handleDeleteRecord('${lastRecord.id}')" class="bg-red-500 text-white px-3 py-1 rounded-lg font-bold hover:bg-red-600 transition-colors text-sm">
+                                    Eliminar
+                                </button>
+                            </div>
+                        </div>`;
+                }
+            }
+
+            if (historyHtml === '') {
+                 historyHtml = `<p class="mt-4 text-gray-600 text-center">No hay registros para este día.</p>`;
+            }
+            
+            appContainer.innerHTML = `
+                <div class="p-8 h-full flex flex-col bg-[#f0fdf4]">
+                    <header class="p-6 bg-white shadow-md flex justify-between items-center -mx-8 -mt-8 mb-4">
+                        <button onclick="state.currentScreen='dashboard'; render();" class="text-gray-500 hover:text-gray-800"><i class="fas fa-arrow-left text-xl"></i></button>
+                        <h1 class="text-xl font-bold">Historial de Asistencia</h1>
+                        <span class="w-6"></span>
+                    </header>
+                    <div class="mb-4">
+                        <label for="history-date" class="block text-gray-600 font-semibold mb-2">Selecciona una fecha:</label>
+                        <input type="date" id="history-date" value="${state.selectedHistoryDate}" onchange="window.selectHistoryDate(this.value)" class="w-full p-2 border rounded-md">
+                    </div>
+                    <main class="space-y-4 flex-grow overflow-y-auto">
+                        ${historyHtml}
+                    </main>
+                    <footer class="p-4 -mx-8 -mb-8 mt-4">
+                       <button onclick="window.setScreen('classes')" class="btn-green w-full font-semibold">Volver a Clases</button>
+                    </footer>
+                </div>`;
+        }
+
+        function viewHistoryRecord(recordId) {
+            const record = allHistoryRecords.find(r => r.id === recordId);
+            if (!record) {
+                showMessage("Registro no encontrado.", "error");
+                return;
+            }
+            const studentsInClass = students.filter(s => s.className === record.className);
+            const studentListHTML = studentsInClass.map(s => {
+                const status = record.attendance[s.id] || 'No Registrado';
+                const statusColor = {
+                    'presente': 'text-green-600',
+                    'tarde': 'text-yellow-600',
+                    'ausente': 'text-red-600',
+                    'No Registrado': 'text-gray-500'
+                };
+                const statusIcon = {
+                    'presente': 'fas fa-check-circle',
+                    'tarde': 'fas fa-clock',
+                    'ausente': 'fas fa-times-circle',
+                    'No Registrado': 'fas fa-question-circle'
+                };
+                return `
+                    <li class="flex justify-between items-center py-2 border-b last:border-b-0">
+                        <span class="font-semibold">${s.name}</span>
+                        <span class="${statusColor[status]} font-bold">
+                            <i class="${statusIcon[status]} mr-1"></i> ${status.charAt(0).toUpperCase() + status.slice(1)}
+                        </span>
+                    </li>
+                `;
+            }).join('');
+            
+            const formattedDate = new Date(record.date).toLocaleString('es-MX', { dateStyle: 'long', timeStyle: 'short' });
+
+            showModal(`
+                <h2 class="text-xl font-bold mb-4">Detalles del Historial</h2>
+                <p class="text-sm text-gray-500 mb-2">${formattedDate} - ${record.className}</p>
+                <div class="max-h-80 overflow-y-auto border-t border-b border-gray-200 my-4">
+                    <ul class="text-left p-2">${studentListHTML}</ul>
+                </div>
+            `, null, null);
+        }
+
+        function renderFullListStudentsScreen() {
+            const currentClass = classes.find(c => c.id === state.selectedClass);
+            if (!currentClass) {
+                state.currentScreen = 'dashboard';
+                render();
+                return;
+            }
+            const studentsInClass = students.filter(s => s.className === currentClass.name && s.group === currentClass.group);
+
+            appContainer.innerHTML = `
+                <div class="flex flex-col h-full">
+                    <header class="p-6 bg-white shadow-md flex justify-between items-center">
+                        <button onclick="state.currentScreen='dashboard'; render();" class="text-gray-500 hover:text-gray-800"><i class="fas fa-arrow-left text-xl"></i></button>
+                        <h1 class="text-lg font-bold text-center">Lista de ${currentClass.name}</h1>
+                        <button onclick="showAddStudentModal()" class="text-green-500 hover:text-green-700">
+                            <i class="fas fa-plus-circle text-xl"></i>
+                        </button>
+                    </header>
+                    <main class="flex-grow p-4 overflow-y-auto">
+                        ${studentsInClass.length === 0 ? `<p class="text-center text-gray-500 mt-8">No hay estudiantes en esta clase. Agrega uno o carga un Excel.</p>` : ''}
+                        <ul class="space-y-4">
+                            ${studentsInClass.map(student => `
+                                <li class="student-card p-4 rounded-lg shadow-md flex justify-between items-center">
+                                    <div>
+                                        <div class="flex items-center">
+                                            <span class="font-semibold text-lg">${student.name}</span>
+                                            <span class="ml-2 ${student.isOfficial ? 'official-badge' : 'unofficial-badge'}">${student.isOfficial ? 'Oficial' : 'No Oficial'}</span>
+                                        </div>
+                                        <p class="text-sm text-gray-500">Matrícula: ${student.id}</p>
+                                    </div>
+                                    <button onclick="deleteStudent('${student.id}')" class="text-red-500 hover:text-red-700">
+                                        <i class="fas fa-trash-alt"></i>
+                                    </button>
+                                </li>
+                            `).join('')}
+                        </ul>
+                    </main>
+                </div>
+            `;
+        }
+
+        function deleteStudent(studentId) {
+            showModal("¿Estás seguro de que deseas eliminar a este estudiante?", () => {
+                students = students.filter(s => s.id !== studentId);
+                saveData();
+                showMessage("Estudiante eliminado correctamente.", "success");
+                render();
+            });
+        }
+        
+        /**
+         * Función para la pantalla de carga de Excel.
+         * Aquí se incluye la interfaz y lógica del primer código.
+         */
+        function renderEditListsScreen() {
+            const classesHtml = classes.map(clase => `
+                <div class="border-t last:border-b border-gray-200 py-4 flex justify-between items-center">
+                    <div>
+                        <h3 class="text-md font-semibold text-gray-800">${clase.name}</h3>
+                        <p class="text-sm text-gray-500">${clase.group}</p>
+                    </div>
+                    <label for="update-file-${clase.id}" class="bg-blue-500 text-white px-3 py-2 rounded-lg font-bold hover:bg-blue-600 transition-colors cursor-pointer text-sm shadow-sm">
+                        <i class="fas fa-upload mr-1"></i> Actualizar
+                        <input type="file" id="update-file-${clase.id}" class="hidden" accept=".xlsx,.xls" onchange="window.handleFileUpload(event, '${clase.id}')">
+                    </label>
+                </div>
+            `).join('');
+
+            appContainer.innerHTML = `
+                <div class="p-8 h-full flex flex-col bg-[#f0fdf4]">
+                    <header class="p-6 bg-white shadow-md flex justify-between items-center -mx-8 -mt-8 mb-4">
+                        <button onclick="window.setScreen('classes')" class="text-gray-600 hover:text-gray-800 text-xl">
+                            <i class="fas fa-arrow-left"></i>
+                        </button>
+                        <h2 class="text-2xl font-bold text-gray-800">Gestionar Clases</h2>
+                        <span class="w-6"></span>
+                    </header>
+                    <main class="flex-grow p-4 overflow-y-auto">
+                        <div class="max-w-4xl mx-auto bg-white rounded-lg shadow-lg p-6 mb-6">
+                            <h2 class="text-xl font-semibold mb-2 text-center">Actualizar Listas de Clases</h2>
+                            <p class="text-center text-gray-500 text-sm mb-4">Selecciona una clase y sube el archivo Excel para actualizar su lista de alumnos.</p>
+                            <div class="flex flex-col">
+                                ${classes.length > 0 ? classesHtml : '<p class="text-center text-gray-500 py-4">No tienes clases registradas.</p>'}
+                            </div>
+                        </div>
+                         <div class="max-w-4xl mx-auto bg-white rounded-lg shadow-lg p-6 mt-6">
+                            <h2 class="text-xl font-semibold mb-2 text-center">Crear Nueva Clase</h2>
+                            <p class="text-center text-gray-500 text-sm mb-4">Agrega una nueva materia manualmente.</p>
+                            <button onclick="window.showAddNewClassModal()" class="w-full bg-green-500 text-white p-3 rounded-lg font-bold hover:bg-green-600 transition-colors">
+                                <i class="fas fa-plus mr-2"></i> Agregar Clase
+                            </button>
+                        </div>
+                    </main>
+                </div>`;
+        }
+
+        function renderUpdateListScreen() {
+            // No implementado en este ejemplo
+            appContainer.innerHTML = `
+                <div class="p-8 text-center">
+                    <h1 class="text-2xl font-bold mb-4">Actualizar Lista</h1>
+                    <p class="text-gray-600">Esta función no está implementada aún.</p>
+                    <button onclick="state.currentScreen='dashboard'; render();" class="mt-4 btn-secondary text-base">Volver al Inicio</button>
+                </div>
+            `;
+        }
+        
+        /**
+         * Lógica para procesar la lista de alumnos importada.
+         */
+        window.procesarLista = function(alumnos, info) {
+            const newClass = {
+                id: `clase-${Date.now()}`,
+                name: info.materia || 'Materia sin nombre',
+                group: info.grupo || 'Grupo sin nombre'
+            };
+
+            const studentsFromExcel = alumnos.map(a => ({
+                id: a.id,
+                name: a.nombre,
+                group: newClass.group,
+                className: newClass.name,
+                isOfficial: false
+            }));
+
+            // Comprobar si ya existe una clase con el mismo nombre y grupo
+            const existingClass = classes.find(c => c.name === newClass.name && c.group === newClass.group);
+            if (!existingClass) {
+                classes.push(newClass);
+            }
+            
+            // Reemplazar la lista de estudiantes de esa clase
+            const otherStudents = students.filter(s => s.group !== newClass.group || s.className !== newClass.name);
+            students = [...otherStudents, ...studentsFromExcel];
+
+            saveData();
+            showMessage(`✅ Se procesaron ${alumnos.length} alumnos para la clase "${newClass.name}".`, "success");
+            
+            // Navegar a la pantalla de la clase recién cargada
+            state.selectedClass = newClass.id;
+            state.currentScreen = "fullListStudents";
+            render();
+        };
+        
+        // --- Variables globales y datos de prueba ---
+        let students = [];
+        let classes = [];
+        let allHistoryRecords = []; 
+        let teacherProfile = {};
+        // Nuevo objeto para el perfil del docente
+        let state = { 
+            currentScreen: "login", 
+            selectedClass: null, 
+            currentStudentIndex: 0, 
+            viewMode: "carousel", 
+            currentPage: 0,
+            tempAttendance: {},
+            historyRecords: [],
+            selectedHistoryDate: new Date().toISOString().slice(0, 10),
+            isUpdating: false,
+            recordToUpdateId: null,
+            isMenuOpen: false,
+            viewingHistoryRecord: false, // Nuevo estado para la vista de historial
+        };
+        const pageSize = 3; 
+        const appContainer = document.getElementById("app-container");
+        const avatars = [
+            'https://placehold.co/100x100/50c878/fff?text=J',
+            'https://placehold.co/100x100/3498db/fff?text=S',
+            'https://placehold.co/100x100/f39c12/fff?text=F',
+            'https://placehold.co/100x100/e74c3c/fff?text=L',
+            'https://placehold.co/100x100/9b59b6/fff?text=A',
+            'https://placehold.co/100x100/34495e/fff?text=M'
+        ];
+        // --- Función para generar IDs únicos de forma compatible ---
+        function generateUUID() {
+            // Usa crypto.randomUUID si está disponible
+            if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+                return crypto.randomUUID();
+            }
+            // Fallback para navegadores antiguos
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+        
+        // --- Funciones de almacenamiento local (`localStorage`) ---
+        /**
+         * Carga los datos de `localStorage` o inicializa con datos de prueba.
+         */
+        function loadData() {
+            try {
+                classes = JSON.parse(localStorage.getItem('classes')) ||
+                [
+                    { id: 'matematicas', name: 'Matemáticas Avanzadas', group: 'Grupo A' },
+                    { id: 'fisica', name: 'Física Aplicada', group: 'Grupo B' },
+                    { id: 'programacion', name: 'Programación I', group: 'Grupo C' }
+                ];
+                students = JSON.parse(localStorage.getItem('students')) || [
+                    { id: 'jvillalobos', name: 'Jazmín Violeta G. Villalobos', group: 'Grupo A', className: 'Matemáticas Avanzadas', isOfficial: true },
+                    { id: 'jperez', name: 'Juan Pérez', group: 'Grupo A', className: 'Matemáticas Avanzadas', isOfficial: true },
+                    { id: 'mgomez', name: 'María Gómez', group: 'Grupo A', className: 'Matemáticas Avanzadas', isOfficial: true },
+                    { id: 'lfernandez', name: 'Laura Fernández', group: 'Grupo B', className: 'Física Aplicada', isOfficial: true },
+                    { id: 'smartinez', name: 'Sofía Martínez', group: 'Grupo B', className: 'Física Aplicada', isOfficial: true },
+                    { id: 'psanchez', name: 'Pedro Sánchez', group: 'Grupo B', className: 'Física Aplicada', isOfficial: true },
+                    { id: 'gruiz', name: 'Gabriela Ruiz', group: 'Grupo C', className: 'Programación I', isOfficial: true },
+                    { id: 'clopez', name: 'Carlos López', group: 'Grupo C', className: 'Programación I', isOfficial: true },
+                    { id: 'atorres', name: 'Ana Torres', group: 'Grupo C', className: 'Programación I', isOfficial: true }
+                ];
+                // Asegurar que todos los estudiantes tengan la propiedad isOfficial
+                students.forEach(student => {
+                    if (student.isOfficial === undefined) {
+                        student.isOfficial = true;
+                    }
+                });
+                allHistoryRecords = JSON.parse(localStorage.getItem('history')) || [];
+                // Asignar IDs únicos a los registros si no los tienen
+                allHistoryRecords.forEach(record => {
+                    if (!record.id) record.id = generateUUID();
+                });
+                teacherProfile = JSON.parse(localStorage.getItem('teacherProfile')) || {
+                    name: "Nombre del Docente",
+                    photo: "https://placehold.co/100x100/d1d5db/4b5563?text=Docente"
+                };
+            } catch (e) {
+                console.error("Error al cargar los datos de localStorage:", e);
+                // Si hay un error (ej. datos corruptos), reinicia con datos de prueba
+                classes = [
+                    { id: 'matematicas', name: 'Matemáticas Avanzadas', group: 'Grupo A' },
+                    { id: 'fisica', name: 'Física Aplicada', group: 'Grupo B' },
+                    { id: 'programacion', name: 'Programación I', group: 'Grupo C' }
+                ];
+                students = [
+                    { id: 'jvillalobos', name: 'Jazmín Violeta G. Villalobos', group: 'Grupo A', className: 'Matemáticas Avanzadas', isOfficial: true },
+                    { id: 'jperez', name: 'Juan Pérez', group: 'Grupo A', className: 'Matemáticas Avanzadas', isOfficial: true },
+                    { id: 'mgomez', name: 'María Gómez', group: 'Grupo A', className: 'Matemáticas Avanzadas', isOfficial: true },
+                    { id: 'lfernandez', name: 'Laura Fernández', group: 'Grupo B', className: 'Física Aplicada', isOfficial: true },
+                    { id: 'smartinez', name: 'Sofía Martínez', group: 'Grupo B', className: 'Física Aplicada', isOfficial: true },
+                    { id: 'psanchez', name: 'Pedro Sánchez', group: 'Grupo B', className: 'Física Aplicada', isOfficial: true },
+                    { id: 'gruiz', name: 'Gabriela Ruiz', group: 'Grupo C', className: 'Programación I', isOfficial: true },
+                    { id: 'clopez', name: 'Carlos López', group: 'Grupo C', className: 'Programación I', isOfficial: true },
+                    { id: 'atorres', name: 'Ana Torres', group: 'Grupo C', className: 'Programación I', isOfficial: true }
+                ];
+                allHistoryRecords = [];
+                teacherProfile = {
+                    name: "Nombre del Docente",
+                    photo: "https://placehold.co/100x100/d1d5db/4b5563?text=Docente"
+                };
+            }
+        }
+        
+        /**
+         * Guarda los datos en `localStorage`.
+         */
+        function saveData() {
+            localStorage.setItem('classes', JSON.stringify(classes));
+            localStorage.setItem('students', JSON.stringify(students));
+            localStorage.setItem('history', JSON.stringify(allHistoryRecords));
+            localStorage.setItem('teacherProfile', JSON.stringify(teacherProfile));
+        }
+
+        // --- Funciones de UI ---
+        /**
+         * Muestra un modal de confirmación al usuario.
+         * @param {string} text - El texto del mensaje.
+         * @param {Function} onConfirm - Función a ejecutar al confirmar.
+         * @param {Function} onCancel - Función a ejecutar al cancelar (opcional).
+         */
+        function showModal(htmlContent, onConfirm, onCancel) {
+            const modalContainer = document.getElementById("modal-container");
+            let buttonsHtml = '';
+            if (onConfirm) {
+                buttonsHtml = `
+                    <button id="confirm-btn" class="flex-grow bg-red-500 text-white p-3 rounded-lg font-bold hover:bg-red-600 transition-colors">Confirmar</button>
+                    <button id="cancel-btn" class="flex-grow bg-gray-300 text-gray-800 p-3 rounded-lg font-bold hover:bg-gray-400 transition-colors">Cancelar</button>
+                `;
+            } else {
+                buttonsHtml = `<button id="cancel-btn" class="w-full bg-gray-300 text-gray-800 p-3 rounded-lg font-bold hover:bg-gray-400 transition-colors">Cerrar</button>`;
+            }
+
+            modalContainer.innerHTML = `<div class="modal-overlay fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50" onclick="hideModal()">
+                <div class="bg-white rounded-xl shadow-lg p-6 w-11/12 max-w-md mx-auto transform transition-all scale-95 duration-200 ease-out" onclick="event.stopPropagation();">
+                    <div class="text-left">${htmlContent}</div>
+                    <div class="flex space-x-4 mt-6">${buttonsHtml}</div>
+                </div>
+            </div>`;
+
+            const overlay = modalContainer.querySelector('.modal-overlay');
+            setTimeout(() => overlay.classList.add('show'), 10);
+            
+            if (onConfirm) {
+                document.getElementById('confirm-btn').onclick = () => { onConfirm(); hideModal(); };
+            }
+            document.getElementById('cancel-btn').onclick = () => { if (onCancel) onCancel(); hideModal(); };
+        }
+        
+        /**
+         * Muestra un modal para solicitar un PIN y validar.
+         * @param {string} text - El texto del mensaje.
+         * @param {Function} onConfirm - Función a ejecutar si el PIN es correcto.
+         * @param {Function} onCancel - Función a ejecutar si el PIN es incorrecto o se cancela (opcional).
+         */
+        function showPinModal(text, onConfirm) {
+            const modalContainer = document.getElementById("modal-container");
+            modalContainer.innerHTML = `<div id="pin-modal" class="modal-overlay fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 transition-opacity duration-300">
+                <div class="bg-white rounded-xl shadow-lg p-6 w-11/12 max-w-sm mx-auto text-center transform transition-all scale-95 duration-200 ease-out">
+                    <p class="text-lg font-semibold text-gray-800 mb-4">${text}</p>
+                    <input type="tel" id="pin-input" class="w-full p-3 rounded-md border border-gray-300 text-center mb-4" placeholder="Ingresa tu PIN">
+                    <div class="flex space-x-4">
+                        <button id="pin-confirm-btn" class="flex-grow bg-green-500 text-white p-3 rounded-lg font-bold hover:bg-green-600 transition-colors">Confirmar</button>
+                        <button id="pin-cancel-btn" class="flex-grow bg-gray-300 text-gray-800 p-3 rounded-lg font-bold hover:bg-gray-400 transition-colors">Cancelar</button>
+                    </div>
+                </div>
+            </div>`;
+            const overlay = document.getElementById('pin-modal');
+            setTimeout(() => overlay.classList.add('show'), 10);
+            
+            document.getElementById('pin-confirm-btn').onclick = () => {
+                const pin = document.getElementById('pin-input').value;
+                if (pin === '1234') { // PIN de prueba
+                    onConfirm();
+                    hideModal();
+                } else {
+                    showMessage("PIN incorrecto. Intenta de nuevo.", "error");
+                }
+            };
+            document.getElementById('pin-cancel-btn').onclick = () => { hideModal(); };
+            overlay.onclick = hideModal;
+            overlay.querySelector('.bg-white').onclick = (e) => e.stopPropagation();
+        }
+        
+        /**
+         * Muestra un modal para agregar una nueva clase manualmente.
+         */
+        window.showAddNewClassModal = () => {
+            showModal(`
+                <h2 class="text-xl font-bold mb-4">Agregar Nueva Clase</h2>
+                <div class="space-y-4">
+                    <div>
+                        <label for="new-class-name" class="block text-sm font-medium text-gray-700">Nombre de la Materia</label>
+                        <input type="text" id="new-class-name" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" placeholder="Ej: Matemáticas Avanzadas">
+                    </div>
+                    <div>
+                        <label for="new-class-group" class="block text-sm font-medium text-gray-700">Grupo</label>
+                        <input type="text" id="new-class-group" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" placeholder="Ej: Grupo A">
+                    </div>
+                </div>
+            `, () => {
+                const name = document.getElementById('new-class-name').value.trim();
+                const group = document.getElementById('new-class-group').value.trim();
+
+                if (!name || !group) {
+                    showMessage("Por favor, completa todos los campos.", "error");
+                    return; // Detiene la ejecución si los campos están vacíos
+                }
+
+                const existingClass = classes.find(c => normalizeText(c.name) === normalizeText(name) && normalizeText(c.group) === normalizeText(group));
+                if (existingClass) {
+                    showMessage("Ya existe una clase con el mismo nombre y grupo.", "error");
+                    return; // Detiene la ejecución si la clase ya existe
+                }
+
+                const newClass = {
+                    id: generateUUID(),
+                    name: name,
+                    group: group
+                };
+                classes.push(newClass);
+                saveData();
+                showMessage("Nueva clase agregada con éxito.", "success");
+                render(); // Vuelve a renderizar la pantalla para mostrar la nueva clase
+            });
+
+            // Cambia el texto y color del botón de confirmación del modal
+            setTimeout(() => {
+                const confirmBtn = document.getElementById('confirm-btn');
+                if (confirmBtn) {
+                     confirmBtn.textContent = 'Guardar Clase';
+                     confirmBtn.classList.remove('bg-red-500', 'hover:bg-red-600');
+                     confirmBtn.classList.add('bg-green-500', 'hover:bg-green-600');
+                }
+            }, 15);
+        };
+
+
+        /**
+         * Muestra un modal para agregar un nuevo estudiante manually.
+         */
+        function showAddStudentModal() {
+            const currentClass = classes.find(c => c.id === state.selectedClass);
+            if (!currentClass) {
+                showMessage("No hay una clase seleccionada para agregar al estudiante.", "error");
+                return;
+            }
+
+            const modalContainer = document.getElementById("modal-container");
+            modalContainer.innerHTML = `<div id="add-student-modal" class="modal-overlay fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 transition-opacity duration-300">
+                <div class="bg-white rounded-xl shadow-lg p-6 w-11/12 max-w-md mx-auto text-center transform transition-all scale-95 duration-200 ease-out">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">Agregar Estudiante a "${currentClass.name}"</h3>
+                    <div class="space-y-4 text-left">
+                        <div>
+                            <label for="student-name" class="block text-gray-700 font-semibold mb-1">Nombre Completo:</label>
+                            <input type="text" id="student-name" class="w-full p-3 rounded-md border border-gray-300" placeholder="Ingresa el nombre completo">
+                        </div>
+                        <div>
+                            <label for="student-id" class="block text-gray-700 font-semibold mb-1">Matrícula o ID:</label>
+                            <input type="text" id="student-id" class="w-full p-3 rounded-md border border-gray-300" placeholder="Ingresa la matrícula o ID">
+                        </div>
+                    </div>
+                    <div class="flex space-x-4 mt-6">
+                        <button id="add-student-confirm" class="flex-grow bg-green-500 text-white p-3 rounded-lg font-bold hover:bg-green-600 transition-colors">Agregar</button>
+                        <button id="add-student-cancel" class="flex-grow bg-gray-300 text-gray-800 p-3 rounded-lg font-bold hover:bg-gray-400 transition-colors">Cancelar</button>
+                    </div>
+                </div>
+            </div>`;
+            
+            const overlay = document.getElementById('add-student-modal');
+            setTimeout(() => overlay.classList.add('show'), 10);
+            
+            document.getElementById('add-student-confirm').onclick = () => {
+                const name = document.getElementById('student-name').value.trim();
+                const studentId = document.getElementById('student-id').value.trim();
+                
+                if (!name || !studentId) {
+                    showMessage("Por favor, ingresa el nombre y la matrícula.", "error");
+                    return;
+                }
+                
+                const existingStudent = students.find(s => s.id.toLowerCase() === studentId.toLowerCase());
+                if (existingStudent) {
+                    showMessage("Ya existe un estudiante con esa matrícula o ID.", "error");
+                    return;
+                }
+                
+                const newStudent = {
+                    id: studentId,
+                    name: name,
+                    group: currentClass.group,
+                    className: currentClass.name,
+                    isOfficial: false 
+                };
+                students.push(newStudent);
+                saveData();
+                showMessage(`Estudiante "${name}" agregado como "No perteneciente a lista".`, "success");
+                hideModal();
+                render(); 
+            };
+            
+            document.getElementById('add-student-cancel').onclick = () => { hideModal(); };
+            overlay.onclick = hideModal;
+            overlay.querySelector('.bg-white').onclick = (e) => e.stopPropagation();
+        }
+
+        /**
+         * Oculta el modal de confirmación.
+         */
+        function hideModal() {
+            const modalContainer = document.getElementById("modal-container");
+            const overlay = modalContainer.querySelector('.modal-overlay');
+            if (overlay) {
+                overlay.classList.remove('show');
+                setTimeout(() => modalContainer.innerHTML = '', 300);
+            }
+        }
+
+        /**
+         * Muestra una notificación temporal.
+         * @param {string} text - El texto del mensaje.
+         * @param {string} type - El tipo de mensaje ('success', 'error', 'info').
+         */
+        function showMessage(text, type = "success") {
+            const colors = { success: "bg-green-500", error: "bg-red-500", info: "bg-blue-500" };
+            const icon = { success: "fa-check-circle", error: "fa-exclamation-triangle", info: "fa-info-circle" };
+            const messageContainer = document.getElementById("message-container");
+            const messageBox = document.createElement("div");
+            messageBox.innerHTML = `<div class="${colors[type]} text-white p-4 rounded-xl shadow-lg flex items-center space-x-2 message-box">
+                    <i class="fas ${icon[type]} text-xl"></i><span>${text}</span></div>`;
+            messageContainer.innerHTML = '';
+            messageContainer.appendChild(messageBox);
+            setTimeout(() => { messageBox.querySelector(".message-box").classList.add("show"); }, 10);
+            setTimeout(() => { messageBox.querySelector(".message-box").classList.remove("show"); setTimeout(() => messageBox.remove(), 300); }, 3000);
+        }
+
+        /**
+         * Cambia la pantalla actual de la aplicación y renderiza la nueva.
+         * @param {string} screen - El nombre de la pantalla a mostrar.
+         */
+        window.setScreen = (screen) => { 
+            state.currentScreen = screen;
+            render(); 
+        }
+
+        /**
+         * Alterna la visibilidad del menú de hamburguesa.
+         */
+        window.toggleMenu = () => {
+            state.isMenuOpen = !state.isMenuOpen;
+            const menu = document.getElementById('hamburger-menu');
+            if (menu) {
+                if (state.isMenuOpen) {
+                    menu.classList.add('open');
+                } else {
+                    menu.classList.remove('open');
+                }
+            }
+        };
+
+        // ---------------- PANTALLAS (VIEWS) ----------------
+        /**
+         * Muestra la pantalla de inicio de sesión.
+         */
+        function renderLoginScreen() {
+            appContainer.innerHTML = `<div class="p-8 flex flex-col h-full bg-[#f0fdf4] auth-container">
+                <div class="text-center mb-8">
+                    <img src="https://placehold.co/100x100/a7f3d0/34d399?text=UABC" alt="Logo UABC" class="mx-auto rounded-full mb-4">
+                    <h1 class="text-3xl font-bold text-gray-800">DOCENTE</h1>
+                    <p class="text-gray-500 mt-2">Ingresa tu PIN para continuar</p>
+                </div>
+                <div class="w-full space-y-4">
+                    <input id="login-pin" type="tel" placeholder="Ingresa tu PIN" class="w-full p-4 text-center rounded-xl border border-gray-300">
+                    <button onclick="window.handleLogin()" class="w-full bg-[#34d399] text-white p-4 rounded-xl font-semibold hover:bg-[#10b981] transition-colors duration-200">Acceder</button>
+                </div></div>`;
+        }
+
+        /**
+         * Muestra la lista de clases.
+         */
+        function renderClassesScreen() {
+            const classesHtml = classes.map(c => `<div onclick="window.setSelectedClass('${c.id}')" class="class-card bg-white p-4 rounded-2xl shadow-sm hover:shadow-md cursor-pointer text-center">
+                <h3 class="text-xl font-semibold text-gray-700">${c.name}</h3>
+                <p class="text-sm text-gray-500">${c.group}</p>
+            </div>`).join("");
+            appContainer.innerHTML = `<div class="p-8 h-full flex flex-col bg-[#f0fdf4]">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-2xl font-bold text-gray-800">Mis Clases</h2>
+                    <button onclick="window.toggleMenu()" class="text-gray-600 text-2xl hover:text-gray-800">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                </div>
+
+                <div class="flex flex-col items-center justify-center p-4 mb-6">
+                    <input type="file" id="photo-upload" class="hidden" accept="image/*">
+                    <div onclick="document.getElementById('photo-upload').click()" class="relative w-24 h-24 rounded-full border-4 border-green-500 shadow-lg cursor-pointer flex items-center justify-center overflow-hidden mb-2 group">
+                        <img id="profile-photo" src="${teacherProfile.photo}" alt="Foto de Perfil" class="w-full h-full object-cover">
+                        <div class="absolute inset-0 bg-black bg-opacity-40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                            <i class="fas fa-camera text-white text-3xl"></i>
+                        </div>
+                    </div>
+                    <span id="teacher-name" onclick="window.handleNameEdit()" class="text-xl font-semibold text-gray-800 cursor-pointer p-1 rounded hover:bg-gray-100">${teacherProfile.name}</span>
+                </div>
+                
+                <div class="flex flex-col space-y-4 flex-grow overflow-y-auto">
+                    ${classesHtml}
+                </div>
+                
+                <div id="hamburger-menu" class="hamburger-menu flex flex-col p-8">
+                    <div class="flex justify-end mb-8">
+                        <button onclick="window.toggleMenu()" class="text-gray-600 text-2xl hover:text-gray-800">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <div class="flex flex-col space-y-4">
+                        <button onclick="window.setScreen('history'); window.toggleMenu();" class="btn-secondary font-semibold">Ver Historial</button>
+                        <button onclick="window.setScreen('editLists'); window.toggleMenu();" class="btn-secondary font-semibold">Actualizar Listas</button>
+                        <button onclick="window.showExportModal(); window.toggleMenu();" class="btn-secondary font-semibold">Exportar Datos</button>
+                        <input type="file" id="importFile" class="hidden" accept=".xlsx">
+                        <button onclick="document.getElementById('importFile').click(); window.toggleMenu();" class="btn-secondary font-semibold">Importar Datos</button>
+                        <button onclick="window.setScreen('login'); window.toggleMenu();" class="btn-secondary font-semibold">Cerrar Sesión</button>
+                    </div>
+                </div>
+            </div>`;
+            document.getElementById('importFile').addEventListener('change', window.handleImportFile, false);
+            document.getElementById('photo-upload').addEventListener('change', window.handlePhotoUpload, false);
+            const menu = document.getElementById('hamburger-menu');
+            if (state.isMenuOpen) {
+                menu.classList.add('open');
+            }
+        }
+     /**
+     * Muestra la pantalla de actualizar listas (clases y actualizar).
+     */
+    function renderEditListsScreen() {
+        const classesHtml = classes.map(clase => `
+            <div class="border-t last:border-b border-gray-200 py-4 flex justify-between items-center">
+                <div>
+                    <h3 class="text-md font-semibold text-gray-800">${clase.name}</h3>
+                    <p class="text-sm text-gray-500">${clase.group}</p>
+                </div>
+                <label for="update-file-${clase.id}" class="bg-blue-500 text-white px-3 py-2 rounded-lg font-bold hover:bg-blue-600 transition-colors cursor-pointer text-sm shadow-sm">
+                    <i class="fas fa-upload mr-1"></i> Actualizar
+                    <input type="file" id="update-file-${clase.id}" class="hidden" accept=".xlsx,.xls" onchange="window.handleFileUpload(event, '${clase.id}')">
+                </label>
+            </div>
+        `).join('');
+
+        appContainer.innerHTML = `
+            <div class="p-8 h-full flex flex-col bg-[#f0fdf4]">
+                <header class="p-6 bg-white shadow-md flex justify-between items-center -mx-8 -mt-8 mb-4">
+                    <button onclick="window.setScreen('classes')" class="text-gray-600 hover:text-gray-800 text-xl">
+                        <i class="fas fa-arrow-left"></i>
+                    </button>
+                    <h2 class="text-2xl font-bold text-gray-800">Gestionar Clases</h2>
+                    <span class="w-6"></span>
+                </header>
+                <main class="flex-grow p-4 overflow-y-auto">
+                    <div class="max-w-4xl mx-auto bg-white rounded-lg shadow-lg p-6 mb-6">
+                        <h2 class="text-xl font-semibold mb-2 text-center">Actualizar Listas de Clases</h2>
+                        <p class="text-center text-gray-500 text-sm mb-4">Selecciona una clase y sube el archivo Excel para actualizar su lista de alumnos.</p>
+                        <div class="flex flex-col">
+                            ${classes.length > 0 ? classesHtml : '<p class="text-center text-gray-500 py-4">No tienes clases registradas.</p>'}
+                        </div>
+                    </div>
+                     <div class="max-w-4xl mx-auto bg-white rounded-lg shadow-lg p-6 mt-6">
+                        <h2 class="text-xl font-semibold mb-2 text-center">Crear Nueva Clase</h2>
+                        <p class="text-center text-gray-500 text-sm mb-4">Agrega una nueva materia manualmente.</p>
+                        <button onclick="window.showAddNewClassModal()" class="w-full bg-green-500 text-white p-3 rounded-lg font-bold hover:bg-green-600 transition-colors">
+                            <i class="fas fa-plus mr-2"></i> Agregar Clase
+                        </button>
+                    </div>
+                </main>
+            </div>`;
+    }
+        
+        
+         /**
+         * Pide confirmación y elimina una clase.
+         * @param {string} classId - El ID de la clase a eliminar.
+         */
+        window.confirmDeleteClass = (classId) => {
+            showModal("¿Estás seguro de que quieres eliminar esta clase y todos sus estudiantes?", () => {
+                const classToRemove = classes.find(c => c.id === classId);
+                if (classToRemove) {
+                    students = students.filter(s => s.className !== classToRemove.name);
+                    classes = classes.filter(c => c.id !== classId);
+                    saveData();
+                    showMessage("Clase y estudiantes eliminados con éxito.", "success");
+                    render();
+                }
+            });
+        }
+        
+        /**
+         * Agrega una nueva clase a la lista.
+         */
+        window.addNewClass = () => {
+            const newClass = { id: generateUUID(), name: 'Nueva Clase', group: 'Nuevo Grupo' };
+            classes.push(newClass);
+            saveData();
+            showMessage("Nueva clase agregada.", "success");
+            render();
+        }
+
+        /**
+         * Actualiza el nombre de una clase.
+         * @param {string} classId - El ID de la clase.
+         * @param {string} newName - El nuevo nombre.
+         */
+        window.updateClassName = (classId, newName) => {
+            const classToUpdate = classes.find(c => c.id === classId);
+            if (classToUpdate) {
+                classToUpdate.name = newName;
+                saveData();
+            }
+        }
+        
+        /**
+         * Actualiza el grupo de una clase.
+         * @param {string} classId - El ID de la clase.
+         * @param {string} newGroup - El nuevo grupo.
+         */
+        window.updateClassGroup = (classId, newGroup) => {
+            const classToUpdate = classes.find(c => c.id === classId);
+            if (classToUpdate) {
+                classToUpdate.group = newGroup;
+                saveData();
+            }
+        }
+        
+        /**
+         * Agrega un nuevo estudiante no oficial a la lista.
+         */
+        window.addNewStudent = () => {
+            const newStudent = { id: generateUUID(), name: 'Nuevo Estudiante', group: 'Sin grupo', className: 'Sin clase', isOfficial: false };
+            students.push(newStudent);
+            saveData();
+            showMessage("Nuevo estudiante agregado.", "success");
+            render();
+        }
+
+        /**
+         * Actualiza el nombre de un estudiante.
+         * @param {string} studentId - El ID del estudiante.
+         * @param {string} newName - El nuevo nombre.
+         */
+        window.updateStudentName = (studentId, newName) => {
+            const studentToUpdate = students.find(s => s.id === studentId);
+            if (studentToUpdate) {
+                studentToUpdate.name = newName;
+                saveData();
+            }
+        }
+
+        /**
+         * Actualiza el ID de un estudiante.
+         * @param {string} studentId - El ID del estudiante.
+         * @param {string} newId - El nuevo ID.
+         */
+        window.updateStudentId = (studentId, newId) => {
+            if (students.some(s => s.id === newId && s.id !== studentId)) {
+                showMessage("Ya existe un estudiante con ese ID. No se puede actualizar.", "error");
+                render();
+                return;
+            }
+            const studentToUpdate = students.find(s => s.id === studentId);
+            if (studentToUpdate) {
+                studentToUpdate.id = newId;
+                saveData();
+            }
+        }
+
+        /**
+         * Pide confirmación y elimina un estudiante.
+         * @param {string} studentId - El ID del estudiante a eliminar.
+         */
+        window.confirmDeleteStudent = (studentId) => {
+            showModal("¿Estás seguro de que quieres eliminar a este estudiante? Esta acción no se puede deshacer.", () => {
+                students = students.filter(s => s.id !== studentId);
+                saveData();
+                showMessage("Estudiante eliminado con éxito.", "success");
+                render();
+            });
+        };
+
+        /**
+         * Genera los botones de control de vista y agregar estudiante.
+         */
+        function generateViewControls() {
+            return `
+                <div class="flex space-x-2">
+                    <div class="relative">
+                        <button onclick="document.getElementById('view-options').classList.toggle('hidden')" class="text-sm text-green-600 hover:text-green-800 font-semibold transition-colors">
+                            <i class="fas fa-arrows-alt-h mr-1"></i> Cambiar Vista
+                        </button>
+                        <div id="view-options" class="hidden absolute right-0 mt-2 w-40 bg-white rounded-md shadow-lg z-10 py-1">
+                            <button onclick="window.toggleViewMode('carousel');" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100">Carrusel</button>
+                            <button onclick="window.toggleViewMode('list-paginated');" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100">Lista (Paginada)</button>
+                            <button onclick="window.toggleViewMode('list-full');" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100">Lista (Completa)</button>
+                        </div>
+                    </div>
+                    <button onclick="showAddStudentModal()" class="text-sm text-blue-600 hover:text-blue-800 font-semibold transition-colors">
+                        <i class="fas fa-user-plus mr-1"></i> Agregar
+                    </button>
+                </div>
+            `;
+        }
+
+        /**
+         * Muestra la vista de estudiantes en carrusel.
+         */
+        function renderStudentsScreen() {
+            const currentClass = classes.find(c => c.id === state.selectedClass);
+            if (!currentClass) {
+                appContainer.innerHTML = `<div class="p-8 h-full flex flex-col bg-[#f0fdf4]">
+                    <p class="text-gray-500 text-center mt-8">No se encontró la clase.</p>
+                    <button onclick="window.setScreen('classes')" class="w-full mt-4 bg-gray-500 text-white p-3 rounded-lg hover:bg-gray-600">Volver a Clases</button>
+                </div>`;
+                return;
+            }
+            
+            const studentsInClass = students.filter(s => s.className === currentClass.name && s.group === currentClass.group);
+            const currentStudent = studentsInClass[state.currentStudentIndex];
+            const studentHtml = currentStudent ? `
+                <div class="flex flex-col items-center justify-center p-8 text-center space-y-4">
+                    ${renderStudentAvatar(currentStudent)}
+                    <p class="text-xs text-gray-500 mt-1">${currentStudent.id}</p>
+                    <div class="bg-green-100 text-green-800 font-bold py-2 px-4 rounded-xl text-lg ${!currentStudent.isOfficial ? 'not-official' : ''}">${currentStudent.name}</div>
+                    <div class="flex items-center space-x-2">
+                        <span class="${currentStudent.isOfficial ? 'official-badge' : 'unofficial-badge'}">${currentStudent.isOfficial ? 'Oficial' : 'No pertenece a lista'}</span>
+                        <span class="text-xs text-gray-500">${currentStudent.group}</span>
+                    </div>
+                    <div class="flex flex-row space-x-2 justify-end w-full">
+                        <button onclick="window.markAttendance('${currentStudent.id}', 'Presente', true)" class="attendance-btn-present w-20 h-20 rounded-full flex items-center justify-center text-3xl shadow-md">✅</button>
+                        <button onclick="window.markAttendance('${currentStudent.id}', 'Tarde', true)" class="attendance-btn-late w-20 h-20 rounded-full flex items-center justify-center text-3xl shadow-md">🟡</button>
+                        <button onclick="window.markAttendance('${currentStudent.id}', 'Ausente', true)" class="attendance-btn-absent w-20 h-20 rounded-full flex items-center justify-center text-3xl shadow-md">❌</button>
+                    </div>
+                </div>` : `<p class="text-gray-500 text-center">No hay estudiantes en esta clase.</p>`;
+            appContainer.innerHTML = `
+                <div class="p-8 h-full flex flex-col bg-[#f0fdf4]">
+                    <div class="flex justify-between items-center mb-4">
+                        <button onclick="window.setScreen('classes')" class="text-gray-600 hover:text-gray-800 text-xl"><i class="fas fa-arrow-left"></i></button>
+                        <h2 class="text-2xl font-bold text-gray-800">${currentClass.name}</h2>
+                        ${generateViewControls()}
+                    </div>
+                    <div class="flex-grow flex items-center justify-center relative">
+                        ${studentHtml}
+                        <button onclick="window.handlePreviousStudent()" class="absolute left-0 p-2 text-3xl text-gray-500 hover:text-gray-800 transition-colors">
+                            <i class="fas fa-chevron-left"></i>
+                        </button>
+                        <button onclick="window.handleNextStudent()" class="absolute right-0 p-2 text-3xl text-gray-500 hover:text-gray-800 transition-colors">
+                            <i class="fas fa-chevron-right"></i>
+                        </button>
+                    </div>
+                    <button onclick="window.setScreen('classes')" class="btn-green mt-6 font-semibold">Volver a Clases</button>
+                </div>
+            `;
+        }
+
+        /**
+         * Muestra la vista de estudiantes en lista con paginación para el primer pase de lista.
+         */
+        function renderListStudentsScreen() {
+            const currentClass = classes.find(c => c.id === state.selectedClass);
+            if (!currentClass) {
+                appContainer.innerHTML = `<div class="p-8 h-full flex flex-col bg-[#f0fdf4]">
+                    <p class="text-gray-500 text-center mt-8">No se encontró la clase.</p>
+                    <button onclick="window.setScreen('classes')" class="w-full mt-4 bg-gray-500 text-white p-3 rounded-lg hover:bg-gray-600">Volver a Clases</button>
+                </div>`;
+                return;
+            }
+            const studentsInClass = students.filter(s => s.className === currentClass.name && s.group === currentClass.group);
+            const startIndex = state.currentPage * pageSize;
+            const endIndex = startIndex + pageSize;
+            const studentsForPage = studentsInClass.slice(startIndex, endIndex);
+            const totalPages = Math.ceil(studentsInClass.length / pageSize);
+            const studentListHtml = studentsForPage.map((s, index) => {
+                const attendanceStatus = state.tempAttendance[s.id] || "Sin registrar";
+                let statusColor = 'text-gray-500';
+                if (attendanceStatus === 'Presente') statusColor = 'text-green-500';
+                if (attendanceStatus === 'Tarde') statusColor = 'text-yellow-500';
+                if (attendanceStatus === 'Ausente') statusColor = 'text-red-500';
+                return `<div class="bg-white p-4 rounded-xl shadow-sm flex flex-col items-center transition-colors duration-200 ${!s.isOfficial ? 'not-official' : ''}">
+                    <div class="flex items-center space-x-4 w-full mb-4">
+                        ${renderStudentAvatar(s)}
+                        <div class="flex-grow">
+                            <p class="font-semibold text-gray-700 whitespace-nowrap overflow-hidden text-ellipsis">${s.name}</p>
+                            <p class="text-xs text-gray-400 mt-1">${s.id}</p>
+                            <div class="flex items-center space-x-2 mt-1">
+                                <span class="${s.isOfficial ? 'official-badge' : 'unofficial-badge'}">${s.isOfficial ? 'Oficial' : 'No en lista'}</span>
+                                <span class="text-xs text-gray-500">${s.group}</span>
+                            </div>
+                            <p class="text-sm ${statusColor}">${attendanceStatus}</p>
+                        </div>
+                    </div>
+                    <div class="flex flex-row space-x-2 justify-end w-full">
+                        <button onclick="window.markAttendance('${s.id}', 'Presente')" class="w-12 h-12 rounded-full flex items-center justify-center bg-green-500 text-white text-lg hover:bg-green-600 transition-colors">✅</button>
+                        <button onclick="window.markAttendance('${s.id}', 'Tarde')" class="w-12 h-12 rounded-full flex items-center justify-center bg-yellow-500 text-white text-lg hover:bg-yellow-600 transition-colors">🟡</button>
+                        <button onclick="window.markAttendance('${s.id}', 'Ausente')" class="w-12 h-12 rounded-full flex items-center justify-center bg-red-500 text-white text-lg hover:bg-red-600 transition-colors">❌</button>
+                    </div>
+                </div>`;
+            }).join('');
+            appContainer.innerHTML = `
+                <div class="p-8 h-full flex flex-col bg-[#f0fdf4]">
+                    <div class="flex justify-between items-center mb-4">
+                        <button onclick="window.setScreen('classes')" class="text-gray-600 hover:text-gray-800 text-xl"><i class="fas fa-arrow-left"></i></button>
+                        <h2 class="text-2xl font-bold text-gray-800">${currentClass.name}</h2>
+                        ${generateViewControls()}
+                    </div>
+                    <div class="space-y-4 flex-grow overflow-y-auto">
+                        ${studentListHtml}
+                    </div>
+                    <div class="mt-4 flex justify-between items-center">
+                        <button onclick="window.previousPage()" class="btn-secondary font-semibold" ${state.currentPage === 0 ? 'disabled' : ''}>Anterior</button>
+                        <span class="text-gray-600">Página ${state.currentPage + 1} de ${totalPages}</span>
+                        <button onclick="window.nextPage()" class="btn-secondary font-semibold" ${state.currentPage >= totalPages - 1 ? 'disabled' : ''}>Siguiente</button>
+                    </div>
+                    <button onclick="window.saveAttendance()" class="btn-green mt-6 font-semibold">Guardar y Terminar</button>
+                </div>
+            `;
+        }
+
+        /**
+         * Muestra la vista de estudiantes en una lista completa.
+         */
+        function renderFullListStudentsScreen() {
+            const currentClass = classes.find(c => c.id === state.selectedClass);
+            if (!currentClass) {
+                appContainer.innerHTML = `<div class="p-8 h-full flex flex-col bg-[#f0fdf4]">
+                    <p class="text-gray-500 text-center mt-8">No se encontró la clase.</p>
+                    <button onclick="window.setScreen('classes')" class="w-full mt-4 bg-gray-500 text-white p-3 rounded-lg hover:bg-gray-600">Volver a Clases</button>
+                </div>`;
+                return;
+            }
+            const studentsInClass = students.filter(s => s.className === currentClass.name);
+            const studentListHtml = studentsInClass.map(s => {
+                const attendanceStatus = state.tempAttendance[s.id] || "Sin registrar";
+                let statusColor = 'text-gray-500';
+                if (attendanceStatus === 'Presente') statusColor = 'text-green-500';
+                if (attendanceStatus === 'Tarde') statusColor = 'text-yellow-500';
+                if (attendanceStatus === 'Ausente') statusColor = 'text-red-500';
+                return `<div class="bg-white p-4 rounded-xl shadow-sm flex flex-col items-center transition-colors duration-200 ${!s.isOfficial ? 'not-official' : ''}">
+                    <div class="flex items-center space-x-4 w-full mb-4">
+                        ${renderStudentAvatar(s)}
+                        <div class="flex-grow">
+                            <p class="font-semibold text-gray-700 whitespace-nowrap overflow-hidden text-ellipsis">${s.name}</p>
+                            <p class="text-xs text-gray-400 mt-1">${s.id}</p>
+                            <div class="flex items-center space-x-2 mt-1">
+                                <span class="${s.isOfficial ? 'official-badge' : 'unofficial-badge'}">${s.isOfficial ? 'Oficial' : 'No en lista'}</span>
+                                <span class="text-xs text-gray-500">${s.group}</span>
+                            </div>
+                            <p class="text-sm ${statusColor}">${attendanceStatus}</p>
+                        </div>
+                    </div>
+                    <div class="flex flex-row space-x-2 justify-end w-full">
+                        <button onclick="window.markAttendance('${s.id}', 'Presente')" class="w-12 h-12 rounded-full flex items-center justify-center bg-green-500 text-white text-lg hover:bg-green-600 transition-colors">✅</button>
+                        <button onclick="window.markAttendance('${s.id}', 'Tarde')" class="w-12 h-12 rounded-full flex items-center justify-center bg-yellow-500 text-white text-lg hover:bg-yellow-600 transition-colors">🟡</button>
+                        <button onclick="window.markAttendance('${s.id}', 'Ausente')" class="w-12 h-12 rounded-full flex items-center justify-center bg-red-500 text-white text-lg hover:bg-red-600 transition-colors">❌</button>
+                    </div>
+                </div>`;
+            }).join('');
+
+            appContainer.innerHTML = `
+                <div class="p-8 h-full flex flex-col bg-[#f0fdf4]">
+                    <div class="flex justify-between items-center mb-4">
+                        <button onclick="window.setScreen('classes')" class="text-gray-600 hover:text-gray-800 text-xl"><i class="fas fa-arrow-left"></i></button>
+                        <h2 class="text-2xl font-bold text-gray-800">${currentClass.name}</h2>
+                        ${generateViewControls()}
+                    </div>
+                    <div class="space-y-4 flex-grow overflow-y-auto">
+                        ${studentListHtml}
+                    </div>
+                    <button onclick="window.saveAttendance()" class="btn-green mt-6 font-semibold">Guardar y Terminar</button>
+                </div>
+            `;
+        }
+        
+         /* Muestra la vista de actualización de lista.
+         */
+        function renderUpdateListScreen() {
+            const currentClass = classes.find(c => c.id === state.selectedClass);
+            if (!currentClass) {
+                appContainer.innerHTML = `<div class="p-8 h-full flex flex-col bg-[#f0fdf4]">
+                    <p class="text-gray-500 text-center mt-8">No se encontró la clase.</p>
+                    <button onclick="window.setScreen('classes')" class="w-full mt-4 bg-gray-500 text-white p-3 rounded-lg hover:bg-gray-600">Volver a Clases</button>
+                </div>`;
+                return;
+            }
+            const studentsInClass = students.filter(s => s.className === currentClass.name);
+            const studentListHtml = studentsInClass.map(s => {
+                const isOfficialBadge = s.isOfficial ? `<span class="official-badge">Oficial</span>` : `<span class="unofficial-badge">No en lista</span>`;
+                return `<div class="bg-white p-4 rounded-xl shadow-sm flex items-center space-x-4 ${!s.isOfficial ? 'not-official' : ''}">
+                    ${renderStudentAvatar(s)}
+                    <div class="flex-grow">
+                        <p class="font-semibold text-gray-700">${s.name}</p>
+                        <p class="text-sm text-gray-400 mt-1">${s.id}</p>
+                    </div>
+                    <div class="flex flex-col space-y-2 text-right">
+                        ${isOfficialBadge}
+                        <button onclick="window.confirmDeleteStudent('${s.id}')" class="text-red-500 hover:text-red-700 font-semibold text-xs">
+                            <i class="fas fa-trash-alt mr-1"></i> Eliminar
+                        </button>
+                    </div>
+                </div>`;
+            }).join('');
+            appContainer.innerHTML = `
+                <div class="p-8 h-full flex flex-col bg-[#f0fdf4]">
+                    <div class="flex justify-between items-center mb-4">
+                        <button onclick="window.setScreen('editLists')" class="text-gray-600 hover:text-gray-800 text-xl"><i class="fas fa-arrow-left"></i></button>
+                        <h2 class="text-2xl font-bold text-gray-800">Actualizar Lista</h2>
+                        <button onclick="showAddStudentModal()" class="text-sm text-blue-600 hover:text-blue-800 font-semibold transition-colors">
+                            <i class="fas fa-user-plus mr-1"></i> Agregar
+                        </button>
+                    </div>
+                    <div class="space-y-4 flex-grow overflow-y-auto">
+                        ${studentListHtml}
+                    </div>
+                    <button onclick="window.setScreen('editLists')" class="btn-green mt-6 font-semibold">Volver</button>
+                </div>
+            `;
+        }
+            
+        /**
+         * Muestra la pantalla de historial de asistencia, con registros guardados.
+         */
+        function renderHistoryScreen() {
+            // Filtra los registros por la fecha seleccionada
+            const recordsForDate = allHistoryRecords.filter(record => {
+                const date = new Date(record.date);
+                if (isNaN(date.getTime())) {
+                    return false;
+                }
+                const recordDate = date.toISOString().slice(0, 10);
+                return recordDate === state.selectedHistoryDate;
+            });
+
+            const historyByClass = recordsForDate.reduce((acc, record) => {
+                if (!acc[record.classId]) {
+                    acc[record.classId] = [];
+                }
+                acc[record.classId].push(record);
+                return acc;
+            }, {});
+
+            let historyHtml = '';
+            
+            for (const classId in historyByClass) {
+                const classRecords = historyByClass[classId].sort((a, b) => new Date(a.date) - new Date(b.date));
+                const firstRecord = classRecords[0];
+                const lastRecord = classRecords[classRecords.length - 1];
+                const className = classes.find(c => c.id === classId)?.name || 'Desconocida';
+                
+                historyHtml += `
+                    <div class="history-card p-4 rounded-xl shadow-md mb-4 flex justify-between items-center">
+                        <div class="flex-grow">
+                            <div class="flex items-center space-x-2 mb-1">
+                                <h3 class="text-lg font-bold text-gray-800">${new Date(firstRecord.date).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</h3>
+                                <span class="text-white px-3 py-1 rounded-full text-xs font-semibold bg-green-500">Pase de Lista Original</span>
+                            </div>
+                            <p class="text-sm text-gray-500">Clase: ${className}</p>
+                        </div>
+                        <div class="flex flex-col space-y-2 items-end">
+                            <button onclick="window.viewHistoryRecord('${firstRecord.id}')" class="bg-gray-500 text-white px-3 py-1 rounded-lg font-bold hover:bg-gray-600 transition-colors text-sm">
+                                Ver Lista
+                            </button>
+                            <button onclick="window.startNewUpdate('${firstRecord.id}')" class="bg-blue-500 text-white px-3 py-1 rounded-lg font-bold hover:bg-blue-600 transition-colors text-sm">
+                                Actualizar
+                            </button>
+                        </div>
+                    </div>`;
+
+                if (lastRecord.id !== firstRecord.id) {
+                     historyHtml += `
+                        <div class="history-card p-4 rounded-xl shadow-md mb-4 flex justify-between items-center updated">
+                            <div class="flex-grow">
+                                <div class="flex items-center space-x-2 mb-1">
+                                    <h3 class="text-lg font-bold text-gray-800">${new Date(lastRecord.date).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</h3>
+                                    <span class="text-white px-3 py-1 rounded-full text-xs font-semibold bg-yellow-500">Última Actualización</span>
+                                </div>
+                                <p class="text-sm text-gray-500">Clase: ${className}</p>
+                            </div>
+                            <div class="flex flex-col space-y-2 items-end">
+                                <button onclick="window.viewHistoryRecord('${lastRecord.id}')" class="bg-gray-500 text-white px-3 py-1 rounded-lg font-bold hover:bg-gray-600 transition-colors text-sm">
+                                    Ver Lista
+                                </button>
+                                <button onclick="window.startNewUpdate('${lastRecord.id}')" class="bg-blue-500 text-white px-3 py-1 rounded-lg font-bold hover:bg-blue-600 transition-colors text-sm">
+                                    Actualizar
+                                </button>
+                                <button onclick="window.handleDeleteRecord('${lastRecord.id}')" class="bg-red-500 text-white px-3 py-1 rounded-lg font-bold hover:bg-red-600 transition-colors text-sm">
+                                    Eliminar
+                                </button>
+                            </div>
+                        </div>`;
+                }
+            }
+
+            if (historyHtml === '') {
+                 historyHtml = `<p class="mt-4 text-gray-600 text-center">No hay registros para este día.</p>`;
+            }
+            
+            appContainer.innerHTML = `
+                <div class="p-8 h-full flex flex-col bg-[#f0fdf4]">
+                    <h2 class="text-2xl font-bold text-gray-800 mb-4 text-center">Historial de Asistencia</h2>
+                    <div class="mb-4">
+                        <label for="history-date" class="block text-gray-600 font-semibold mb-2">Selecciona una fecha:</label>
+                        <input type="date" id="history-date" value="${state.selectedHistoryDate}" onchange="window.selectHistoryDate(this.value)" class="w-full p-2 border rounded-md">
+                    </div>
+                    <div class="space-y-4 flex-grow overflow-y-auto">
+                        ${historyHtml}
+                    </div>
+                    <button onclick="window.setScreen('classes')" class="btn-green mt-6 font-semibold">Volver a Clases</button>
+                </div>`;
+        }
+        
+        
+        /**
+         * Muestra el detalle de un registro de historial.
+         */
+        function renderHistoryDetailsScreen() {
+            const recordsOnDate = allHistoryRecords.filter(r => r.date.startsWith(state.selectedHistoryDate)).sort((a, b) => new Date(b.date) - new Date(a.date));
+            const recordsHtml = recordsOnDate.map(record => {
+                const statusColor = record.status === 'Presente' ? 'text-green-500' : record.status === 'Tarde' ? 'text-yellow-500' : 'text-red-500';
+                return `
+                    <div class="bg-white p-4 rounded-xl shadow-sm flex flex-col space-y-2">
+                        <div class="flex justify-between items-center">
+                            <p class="text-lg font-semibold text-gray-800">${record.studentName}</p>
+                            <p class="text-sm ${statusColor}">${record.status}</p>
+                        </div>
+                        <p class="text-sm text-gray-500">${record.studentId}</p>
+                        <p class="text-xs text-gray-400">${new Date(record.date).toLocaleTimeString()}</p>
+                    </div>`;
+            }).join('');
+
+            appContainer.innerHTML = `
+                <div class="p-8 h-full flex flex-col bg-[#f0fdf4]">
+                    <div class="flex justify-between items-center mb-4">
+                        <button onclick="window.setScreen('history')" class="text-gray-600 hover:text-gray-800 text-xl"><i class="fas fa-arrow-left"></i></button>
+                        <h2 class="text-2xl font-bold text-gray-800">Asistencia del ${state.selectedHistoryDate}</h2>
+                        <span class="w-6"></span>
+                    </div>
+                    <div class="space-y-4 flex-grow overflow-y-auto">
+                        ${recordsHtml.length > 0 ? recordsHtml : '<p class="text-gray-500 text-center">No hay registros para esta fecha.</p>'}
+                    </div>
+                    <button onclick="window.setScreen('history')" class="btn-green mt-6 font-semibold">Volver</button>
+                </div>
+            `;
+        }
+
+        /**
+        * Muestra la pantalla para actualizar una copia de la asistencia.
+        */
+        function renderUpdateAttendanceScreen() {
+            const currentClass = classes.find(c => c.id === state.selectedClass);
+            if (!currentClass) {
+                appContainer.innerHTML = `<div class="p-8 h-full flex flex-col bg-[#f0fdf4]">
+                    <p class="text-gray-500 text-center mt-8">No se encontró la clase.</p>
+                    <button onclick="window.setScreen('history')" class="w-full mt-4 bg-gray-500 text-white p-3 rounded-lg hover:bg-gray-600">Volver al Historial</button>
+                </div>`;
+                return;
+            }
+            const studentsInClass = students.filter(s => s.className === currentClass.name);
+            const studentListHtml = studentsInClass.map(s => {
+                const status = state.tempAttendance[s.id] || 'No Registrado';
+                let statusColor = 'text-gray-500';
+                if (status === 'Presente') statusColor = 'text-green-600';
+                if (status === 'Tarde') statusColor = 'text-yellow-600';
+                if (status === 'Ausente') statusColor = 'text-red-600';
+
+                return `<div class="bg-white p-4 rounded-xl shadow-sm flex flex-col items-center transition-colors duration-200 ${!s.isOfficial ? 'not-official' : ''}">
+                    <div class="flex items-center space-x-4 w-full mb-4">
+                        ${renderStudentAvatar(s)}
+                        <div class="flex-grow">
+                            <p class="font-semibold text-gray-700">${s.name}</p>
+                            <p class="text-xs text-gray-400 mt-1">${s.id}</p>
+                            <p class="text-sm font-bold ${statusColor}">${status}</p>
+                        </div>
+                    </div>
+                    <div class="flex flex-row space-x-2 justify-end w-full">
+                        <button onclick="window.updateAttendanceStatus('${s.id}', 'Presente')" class="w-12 h-12 rounded-full flex items-center justify-center bg-green-500 text-white text-lg hover:bg-green-600 transition-colors">✅</button>
+                        <button onclick="window.updateAttendanceStatus('${s.id}', 'Tarde')" class="w-12 h-12 rounded-full flex items-center justify-center bg-yellow-500 text-white text-lg hover:bg-yellow-600 transition-colors">🟡</button>
+                        <button onclick="window.updateAttendanceStatus('${s.id}', 'Ausente')" class="w-12 h-12 rounded-full flex items-center justify-center bg-red-500 text-white text-lg hover:bg-red-600 transition-colors">❌</button>
+                    </div>
+                </div>`;
+            }).join('');
+
+            appContainer.innerHTML = `
+                <div class="p-8 h-full flex flex-col bg-[#f0fdf4]">
+                    <header class="p-6 bg-white shadow-md flex justify-between items-center -mx-8 -mt-8 mb-4">
+                        <button onclick="window.setScreen('history')" class="text-gray-600 hover:text-gray-800 text-xl"><i class="fas fa-arrow-left"></i></button>
+                        <h2 class="text-xl font-bold text-gray-800">Actualizando Asistencia</h2>
+                        <span class="w-6"></span>
+                    </header>
+                    <div class="space-y-4 flex-grow overflow-y-auto">
+                        ${studentListHtml}
+                    </div>
+                    <footer class="p-4 -mx-8 -mb-8 mt-4 grid grid-cols-2 gap-4">
+                        <button onclick="window.saveAttendanceCopy()" class="btn-green font-semibold">Guardar Copia</button>
+                        <button onclick="window.setScreen('history')" class="btn-secondary font-semibold">Cancelar</button>
+                    </footer>
+                </div>
+            `;
+        }
+
+        // ---------------- FUNCIONES PRINCIPALES ----------------
+        
+        /**
+         * Maneja el inicio de sesión del usuario.
+         */
+        window.handleLogin = () => {
+            const pin = document.getElementById('login-pin').value;
+            if (pin === '1234') { // PIN de prueba
+                state.currentScreen = "classes";
+                render();
+            } else {
+                showMessage("PIN incorrecto. Intenta de nuevo.", "error");
+            }
+        };
+
+        /**
+         * Establece la clase seleccionada y cambia a la pantalla de estudiantes.
+         * @param {string} classId - El ID de la clase.
+         */
+        window.setSelectedClass = (classId) => {
+            state.selectedClass = classId;
+            state.tempAttendance = {}; // Reinicia el estado de asistencia
+            state.currentStudentIndex = 0; // Reinicia el índice del carrusel
+            state.viewMode = 'carousel';
+            state.currentPage = 0;
+            const currentClass = classes.find(c => c.id === state.selectedClass);
+            if (currentClass) {
+                state.historyRecords = []; // Reinicia los registros de historial para esta clase
+            }
+            window.setScreen('students');
+        };
+
+        /**
+         * Alterna el modo de vista entre carrusel y lista.
+         * @param {string} mode - El modo de vista ('carousel', 'list-paginated', 'list-full').
+         */
+        window.toggleViewMode = (mode) => {
+            state.viewMode = mode;
+            state.currentPage = 0; // Reinicia la paginación al cambiar de vista
+            render();
+        };
+
+        /**
+         * Pasa al siguiente estudiante en la vista de carrusel.
+         */
+        window.nextStudent = () => {
+            const currentClass = classes.find(c => c.id === state.selectedClass);
+            const studentsInClass = students.filter(s => s.className === currentClass.name);
+            state.currentStudentIndex = (state.currentStudentIndex + 1) % studentsInClass.length;
+            renderStudentsScreen();
+        };
+
+        /**
+         * Pasa al estudiante anterior en la vista de carrusel.
+         */
+        window.previousStudent = () => {
+            const currentClass = classes.find(c => c.id === state.selectedClass);
+            const studentsInClass = students.filter(s => s.className === currentClass.name);
+            state.currentStudentIndex = (state.currentStudentIndex - 1 + studentsInClass.length) % studentsInClass.length;
+            renderStudentsScreen();
+        };
+
+        /**
+         * Maneja la navegación en el carrusel para el siguiente estudiante, validando si se ha marcado la asistencia.
+         */
+        window.handleNextStudent = () => {
+            const currentClass = classes.find(c => c.id === state.selectedClass);
+            const studentsInClass = students.filter(s => s.className === currentClass.name);
+            const currentStudent = studentsInClass[state.currentStudentIndex];
+            
+            if (!state.tempAttendance[currentStudent.id]) {
+                showMessage("Por favor, marca la asistencia de este estudiante antes de continuar.", "error");
+                return;
+            }
+            window.nextStudent();
+        };
+
+        /**
+         * Maneja la navegación en el carrusel para el estudiante anterior, validando si se ha marcado la asistencia.
+         */
+        window.handlePreviousStudent = () => {
+            const currentClass = classes.find(c => c.id === state.selectedClass);
+            const studentsInClass = students.filter(s => s.className === currentClass.name);
+            const currentStudent = studentsInClass[state.currentStudentIndex];
+
+            if (!state.tempAttendance[currentStudent.id]) {
+                showMessage("Por favor, marca la asistencia de este estudiante antes de continuar.", "error");
+                return;
+            }
+            window.previousStudent();
+        };
+
+        /**
+         * Cambia a la siguiente página en la vista de lista paginada, validando que todos los alumnos de la página actual estén marcados.
+         */
+        window.nextPage = () => {
+            const currentClass = classes.find(c => c.id === state.selectedClass);
+            if (!currentClass) return;
+
+            const studentsInClass = students.filter(s => s.className === currentClass.name);
+            const startIndex = state.currentPage * pageSize;
+            const endIndex = startIndex + pageSize;
+            const studentsForPage = studentsInClass.slice(startIndex, endIndex);
+
+            const unmarkedOnPage = studentsForPage.filter(student => !state.tempAttendance[student.id]);
+
+            if (unmarkedOnPage.length > 0) {
+                showMessage(`Faltan ${unmarkedOnPage.length} alumnos por registrar en esta página.`, "error");
+                return;
+            }
+
+            const totalPages = Math.ceil(studentsInClass.length / pageSize);
+            if (state.currentPage < totalPages - 1) {
+                state.currentPage++;
+                render();
+            }
+        };
+
+        /**
+         * Cambia a la página anterior en la vista de lista paginada.
+         */
+        window.previousPage = () => {
+            if (state.currentPage > 0) {
+                state.currentPage--;
+                render();
+            }
+        };
+
+        /**
+         * Marca la asistencia de un estudiante.
+         * @param {string} studentId - El ID del estudiante.
+         * @param {string} status - El estado de asistencia ('Presente', 'Tarde', 'Ausente').
+         * @param {boolean} autoNext - Si se debe pasar al siguiente estudiante automáticamente.
+         */
+        window.markAttendance = (studentId, status, autoNext = false) => {
+            state.tempAttendance[studentId] = status; // Actualiza el estado temporal
+            const student = students.find(s => s.id === studentId);
+            showMessage(`Asistencia registrada: ${student.name} - ${status}`, "success");
+
+            if (autoNext) {
+                const currentStudents = students.filter(s => s.className === classes.find(c => c.id === state.selectedClass).name);
+                const currentIndex = state.currentStudentIndex;
+                
+                if(currentIndex + 1 >= currentStudents.length) {
+                    // Si es el último estudiante, muestra una opción para guardar
+                     showModal("Has llegado al final de la lista. ¿Deseas guardar la asistencia?", () => {
+                        window.saveAttendance();
+                    });
+                } else {
+                    // Si no, avanza al siguiente
+                    window.handleNextStudent(); // Usar handleNextStudent para validar
+                }
+
+            } else {
+                render(); // Para la vista de lista, solo refresca la UI
+            }
+        };
+
+        /**
+         * Guarda el registro de asistencia en el historial, con validación de campos vacíos.
+         */
+        window.saveAttendance = () => {
+            const currentClass = classes.find(c => c.id === state.selectedClass);
+            if (!currentClass) {
+                 showMessage("Error: No se ha seleccionado una clase.", "error");
+                 return;
+            }
+            const studentsInClass = students.filter(s => s.className === currentClass.name);
+            const unmarkedStudents = studentsInClass.filter(student => !state.tempAttendance[student.id]);
+
+            if (unmarkedStudents.length > 0) {
+                showMessage(`Faltan ${unmarkedStudents.length} alumnos por registrar. Completa la lista para guardar.`, "error");
+                return;
+            }
+            
+            const record = {
+                id: generateUUID(),
+                date: new Date().toISOString(),
+                classId: currentClass.id,
+                className: currentClass.name,
+                group: currentClass.group,
+                attendance: { ...state.tempAttendance }
+            };
+
+            allHistoryRecords.push(record);
+            saveData();
+            showMessage("Asistencia guardada con éxito.", "success");
+            window.setScreen('classes');
+        };
+
+        /**
+         * Establece la fecha del historial para mostrar los registros.
+         * @param {string} date - La fecha en formato 'YYYY-MM-DD'.
+         */
+        window.selectHistoryDate = (date) => {
+            state.selectedHistoryDate = date;
+            render();
+        };
+
+        /**
+         * Muestra el modal para exportar los datos.
+         */
+        window.showExportModal = () => {
+            if (allHistoryRecords.length === 0 && students.length === 0) {
+                showMessage("No hay datos para exportar.", "info");
+                return;
+            }
+            showModal("¿Deseas exportar los datos de asistencia?", () => {
+                const workbook = XLSX.utils.book_new();
+                
+                if (allHistoryRecords.length > 0) {
+                    // Hoja de Historial
+                    const historyData = allHistoryRecords.map(r => ({
+                        ID_Estudiante: r.studentId,
+                        Nombre: r.studentName,
+                        Clase: r.className,
+                        Fecha: new Date(r.date).toLocaleDateString(),
+                        Hora: new Date(r.date).toLocaleTimeString(),
+                        Estado: r.status
+                    }));
+                    const historySheet = XLSX.utils.json_to_sheet(historyData);
+                    XLSX.utils.book_append_sheet(workbook, historySheet, 'Historial de Asistencia');
+                }
+                
+                if (students.length > 0) {
+                    // Hoja de Estudiantes
+                    const studentsData = students.map(s => ({
+                        ID: s.id,
+                        Nombre: s.name,
+                        Clase: s.className,
+                        Grupo: s.group,
+                        Oficial: s.isOfficial ? 'Sí' : 'No'
+                    }));
+                    const studentsSheet = XLSX.utils.json_to_sheet(studentsData);
+                    XLSX.utils.book_append_sheet(workbook, studentsSheet, 'Lista de Estudiantes');
+                }
+
+                // Generar y descargar el archivo
+                const filename = `datos_asistencia_${new Date().toISOString().slice(0, 10)}.xlsx`;
+                XLSX.writeFile(workbook, filename);
+                showMessage("Datos exportados con éxito.", "success");
+            });
+        };
+
+        /**
+         * Maneja la importación de un archivo XLSX para actualizar la lista de estudiantes.
+         * @param {Event} event - El evento de cambio del input file.
+         */
+        window.handleImportFile = async (event) => {
+            const file = event.target.files[0];
+            if (!file) {
+                showMessage("No se seleccionó ningún archivo.", "error");
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                    expandMergedCells(sheet);
+                    const json = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+                    const materia = sheet['C3']?.v || 'Sin Materia';
+                    const grupo = sheet['F3']?.v || 'Sin Grupo'; // Corregido de D3 a F3
+
+                    let headerRowIndex = -1, matriculaIndex = -1, nombreIndex = -1;
+                    for (let i = 0; i < json.length; i++) {
+                        const row = json[i];
+                        if (Array.isArray(row)) {
+                            const tempMatriculaIndex = row.findIndex(cell => normalizeText(cell).includes('matricula'));
+                            const tempNombreIndex = row.findIndex(cell => normalizeText(cell).includes('nombre del alumno'));
+                            if (tempMatriculaIndex !== -1 && tempNombreIndex !== -1) {
+                                headerRowIndex = i;
+                                matriculaIndex = tempMatriculaIndex;
+                                nombreIndex = tempNombreIndex;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (headerRowIndex === -1) {
+                        showMessage("No se encontraron las columnas 'Matricula' y 'Nombre del Alumno'.", "error");
+                        return;
+                    }
+
+                    const alumnos = json.slice(headerRowIndex + 1)
+                        .map(row => ({ matricula: row[matriculaIndex], nombre: row[nombreIndex] }))
+                        .filter(a => a.matricula && a.nombre);
+
+                    if (alumnos.length === 0) {
+                        showMessage("No se encontraron estudiantes en el archivo.", "warning");
+                        return;
+                    }
+
+                    // Procesar la lista
+                    let targetClass = classes.find(c => normalizeText(c.name) === normalizeText(materia) && normalizeText(c.group) === normalizeText(grupo));
+
+                    if (!targetClass) {
+                        targetClass = { id: generateUUID(), name: materia, group: grupo };
+                        classes.push(targetClass);
+                        showMessage(`Nueva clase "${materia}" creada.`, "info");
+                    }
+
+                    // Eliminar estudiantes oficiales antiguos de la clase, manteniendo los no oficiales
+                    students = students.filter(s => !(normalizeText(s.className) === normalizeText(materia) && normalizeText(s.group) === normalizeText(grupo) && s.isOfficial));
+
+                    // Agregar los nuevos estudiantes
+                    const newStudents = alumnos.map(a => ({
+                        id: a.matricula.toString(),
+                        name: a.nombre,
+                        group: grupo,
+                        className: materia,
+                        isOfficial: true
+                    }));
+                    students.push(...newStudents);
+
+                    saveData();
+                    showMessage(`✅ Se actualizaron ${newStudents.length} alumnos para la clase "${materia}".`, "success");
+                    
+                    state.selectedClass = targetClass.id;
+                    state.currentScreen = "fullListStudents";
+                    render();
+
+                } catch (error) {
+                    console.error("Error al procesar el archivo:", error);
+                    showMessage("Error al procesar el archivo. Asegúrate de que sea un archivo de Excel válido.", "error");
+                } finally {
+                    event.target.value = '';
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        };
+
+        /**
+         * Maneja la carga de un archivo para actualizar la lista de una clase específica.
+         * @param {Event} event - El evento de cambio del input file.
+         */
+        window.handleFileUpload = async (event, classId) => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const targetClass = classes.find(c => c.id === classId);
+            if (!targetClass) {
+                showMessage("Error: No se encontró la clase a actualizar.", "error");
+                event.target.value = '';
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                    expandMergedCells(sheet);
+                    
+                    // Extraer y normalizar la información del archivo para una validación más robusta.
+                    const materiaDelArchivo = normalizeText(sheet['C3']?.v || '');
+                    const grupoDelArchivo = normalizeText(sheet['F3']?.v || '');
+                    const materiaDeLaClase = normalizeText(targetClass.name);
+                    const grupoDeLaClase = normalizeText(targetClass.group);
+
+                    // 1. Validar que el archivo tiene la información necesaria.
+                    if (!materiaDelArchivo || !grupoDelArchivo) {
+                        showMessage("El archivo no tiene el formato correcto o las celdas de materia/grupo están vacías.", "error");
+                        return;
+                    }
+
+                    // 2. Validar que la información del archivo coincida con la de la clase.
+                    if (materiaDelArchivo !== materiaDeLaClase || grupoDelArchivo !== grupoDeLaClase) {
+                        showMessage(`El archivo no corresponde a la clase "${targetClass.name} - ${targetClass.group}".`, "error");
+                        return;
+                    }
+
+                    const json = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+                    let headerRowIndex = -1, matriculaIndex = -1, nombreIndex = -1;
+                    for (let i = 0; i < json.length; i++) {
+                        const row = json[i];
+                        if (Array.isArray(row)) {
+                            const tempMatriculaIndex = row.findIndex(cell => normalizeText(cell).includes('matricula'));
+                            const tempNombreIndex = row.findIndex(cell => normalizeText(cell).includes('nombre del alumno'));
+                            if (tempMatriculaIndex !== -1 && tempNombreIndex !== -1) {
+                                headerRowIndex = i;
+                                matriculaIndex = tempMatriculaIndex;
+                                nombreIndex = tempNombreIndex;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (headerRowIndex === -1) {
+                        showMessage("Columnas 'Matricula' y 'Nombre del Alumno' no encontradas.", "error");
+                        return;
+                    }
+
+                    const alumnos = json.slice(headerRowIndex + 1)
+                        .map(row => ({ matricula: row[matriculaIndex], nombre: row[nombreIndex] }))
+                        .filter(a => a.matricula && a.nombre);
+
+                    if (alumnos.length === 0) {
+                        showMessage("No se encontraron estudiantes en el archivo.", "warning");
+                        return;
+                    }
+
+                    showModal(`Encontramos ${alumnos.length} alumnos. ¿Deseas reemplazar la lista oficial de "${targetClass.name}"? Los alumnos agregados manualmente se conservarán.`, () => {
+                        students = students.filter(s => !(s.className === targetClass.name && s.group === targetClass.group && s.isOfficial));
+
+                        const newStudents = alumnos.map(a => ({
+                            id: a.matricula.toString(),
+                            name: a.nombre,
+                            group: targetClass.group,
+                            className: targetClass.name,
+                            isOfficial: true
+                        }));
+                        students.push(...newStudents);
+
+                        saveData();
+                        showMessage(`✅ Lista de "${targetClass.name}" actualizada.`, "success");
+                        render();
+                    });
+
+                } catch (error) {
+                    console.error("Error al procesar el archivo:", error);
+                    showMessage("Error al procesar el archivo Excel.", "error");
+                } finally {
+                    event.target.value = '';
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        };
+        
+        /**
+         * Maneja la edición del nombre del docente.
+         */
+        window.handleNameEdit = () => {
+            const newName = prompt("Ingresa tu nuevo nombre:");
+            if (newName && newName.trim() !== "") {
+                teacherProfile.name = newName.trim();
+                saveData();
+                render();
+            }
+        };
+
+        /**
+         * Maneja la carga de la foto de perfil del docente.
+         * @param {Event} event - El evento de cambio del input file.
+         */
+        window.handlePhotoUpload = (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    teacherProfile.photo = e.target.result;
+                    saveData();
+                    render();
+                };
+                reader.readAsDataURL(file);
+            }
+        };
+
+        /**
+         * Renderiza el avatar de un estudiante con sus iniciales o una imagen si está disponible.
+         */
+        function renderStudentAvatar(student) {
+            const initials = student.name.split(' ').map(n => n[0]).join('').toUpperCase();
+            
+            let avatarContent;
+            if (student.image) {
+                avatarContent = `<img src="${student.image}" alt="Avatar de ${student.name}" class="h-16 w-16 rounded-full object-cover">`;
+            } else {
+                avatarContent = `<span class="text-3xl font-bold text-gray-700">${initials}</span>`;
+            }
+
+            // Agrega un input de tipo file oculto para cargar la imagen
+            const inputId = `file-input-${student.id}`;
+            // Corregido: se pasa el ID del estudiante como una cadena de texto
+            const fileInputHtml = `<input type="file" id="${inputId}" class="hidden" accept="image/*" onchange="addStudentImage('${student.id}', event)">`;
+            
+            return `
+                <div class="relative inline-block w-16 h-16 rounded-full bg-gray-200 flex items-center justify-center">
+                    ${avatarContent}
+                    <div class="absolute bottom-0 right-0 p-1 bg-green-500 rounded-full cursor-pointer hover:bg-green-600" onclick="document.getElementById('${inputId}').click()">
+                        <i class="fas fa-camera text-white text-xs"></i>
+                    </div>
+                </div>
+                ${fileInputHtml}
+            `;
+        }
+
+        /**
+         * Agrega la imagen de un estudiante.
+         */
+        function addStudentImage(studentId, event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const student = students.find(s => s.id === studentId);
+                    if (student) {
+                        student.image = e.target.result;
+                        saveData();
+                        render();
+                    }
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+        
+        // --- Nuevas funciones para la vista de "Actualizar Lista" y botones de historial ---
+        window.startNewUpdate = (recordId) => {
+            const originalRecord = allHistoryRecords.find(r => r.id === recordId);
+            if (!originalRecord) {
+                showMessage("No se encontró el registro original.", "error");
+                return;
+            }
+            state.isUpdating = true;
+            state.recordToUpdateId = recordId;
+            state.selectedClass = originalRecord.classId;
+            state.tempAttendance = { ...originalRecord.attendance }; // Copia de la asistencia
+            
+            state.currentScreen = 'updateAttendance'; // Nueva pantalla para actualizar
+            render();
+        };
+
+        window.updateAttendanceStatus = (studentId, status) => {
+            state.tempAttendance[studentId] = status;
+            render(); // Re-render to show the change
+        };
+
+        window.saveAttendanceCopy = () => {
+            const currentClass = classes.find(c => c.id === state.selectedClass);
+            if (!currentClass) {
+                showMessage("Error: no se pudo encontrar la clase.", "error");
+                return;
+            }
+
+            const newRecord = {
+                id: generateUUID(),
+                date: new Date().toISOString(),
+                classId: currentClass.id,
+                className: currentClass.name,
+                group: currentClass.group,
+                attendance: { ...state.tempAttendance },
+                isCopy: true // Flag it as a copy
+            };
+
+            allHistoryRecords.push(newRecord);
+            saveData();
+
+            // Reset state
+            state.isUpdating = false;
+            state.recordToUpdateId = null;
+            state.tempAttendance = {};
+
+            showMessage("Copia de asistencia guardada con éxito.", "success");
+            window.setScreen('history');
+        };
+
+        window.handleDeleteRecord = (recordId) => {
+            showPinModal("Ingresa tu PIN para confirmar la eliminación.", () => {
+                // Si el PIN es correcto, se ejecuta esta función
+                allHistoryRecords = allHistoryRecords.filter(r => r.id !== recordId);
+                saveData();
+                showMessage("Registro eliminado.", "success");
+                render();
+            });
+        };
+
+        /**
+         * Establece la clase seleccionada y cambia a la pantalla de actualización de lista de estudiantes.
+         * @param {string} classId - El ID de la clase.
+         */
+        window.setUpdateClass = (classId) => {
+            state.selectedClass = classId;
+            window.setScreen('updateList');
+        };
+
+        /**
+         * Función principal de renderizado.
+         */
+        function render() {
+            switch (state.currentScreen) {
+                case "login":
+                    renderLoginScreen();
+                    break;
+                case "classes":
+                    renderClassesScreen();
+                    break;
+                case "students":
+                    if (state.viewMode === 'carousel') {
+                        renderStudentsScreen();
+                    } else if (state.viewMode === 'list-paginated') {
+                        renderListStudentsScreen();
+                    } else {
+                        renderFullListStudentsScreen();
+                    }
+                    break;
+                case "fullListStudents":
+                    renderFullListStudentsScreen();
+                    break;
+                case "editLists":
+                    renderEditListsScreen();
+                    break;
+                case "history":
+                    renderHistoryScreen();
+                    break;
+                case "updateList":
+                    renderUpdateListScreen();
+                    break;
+                case "updateAttendance":
+                    renderUpdateAttendanceScreen();
+                    break;
+                default:
+                    renderLoginScreen();
+            }
+        }
+        
+        /**
+         * Función de inicialización de la aplicación.
+         */
+        function initializeApp() {
+            // Verifica si la librería XLSX está cargada.
+            if (typeof XLSX === 'undefined') {
+                // Reintenta después de un breve periodo
+                setTimeout(initializeApp, 100); 
+                return;
+            }
+            
+            loadData();
+            render();
+        }
+
+        /**
+         * Se ejecuta cuando la ventana ha terminado de cargarse.
+         */
+        window.onload = () => {
+             initializeApp();
+        };
+    </script>
+</body>
+</html>
